@@ -1,0 +1,398 @@
+name: Safety Net
+
+# Daily at 00:00 UTC - ESCALATION ONLY, does NOT auto-fix
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Manual trigger for testing
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  safety-net:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for stuck repositories
+        uses: actions/github-script@v7
+        with:
+          # Note: Cross-repo access requires GITHUB_TOKEN with repo scope
+          # For private repos or cross-org access, configure PAT as SAFETY_NET_TOKEN secret
+          github-token: ${{ secrets.SAFETY_NET_TOKEN || secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            // Load constellation config
+            const constellationPath = path.join(process.env.GITHUB_WORKSPACE, '.squad/constellation.json');
+            const constellation = JSON.parse(fs.readFileSync(constellationPath, 'utf8'));
+            const repos = constellation.repos;
+            
+            core.info(`🔍 Monitoring ${repos.length} repositories in constellation`);
+            
+            const escalations = [];
+            const now = new Date();
+            const threeDaysAgo = new Date(now - 72 * 60 * 60 * 1000);
+            const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
+            const fiveDaysAgo = new Date(now - 5 * 24 * 60 * 60 * 1000);
+            
+            // Helper to create escalation entry
+            function addEscalation(repo, issueType, severity, details) {
+              escalations.push({
+                repo,
+                issueType,
+                severity,
+                details,
+                timestamp: now.toISOString()
+              });
+            }
+            
+            // Process each repo
+            for (const repoFullName of repos) {
+              const [owner, repo] = repoFullName.split('/');
+              core.info(`\n📊 Checking ${repoFullName}...`);
+              
+              try {
+                // CHECK 1: No activity >72h
+                // Look at commits, issues closed, PRs merged
+                const [commits, issues, pulls] = await Promise.all([
+                  github.rest.repos.listCommits({
+                    owner,
+                    repo,
+                    since: threeDaysAgo.toISOString(),
+                    per_page: 1
+                  }),
+                  github.rest.issues.listForRepo({
+                    owner,
+                    repo,
+                    state: 'closed',
+                    since: threeDaysAgo.toISOString(),
+                    per_page: 1
+                  }),
+                  github.rest.pulls.list({
+                    owner,
+                    repo,
+                    state: 'closed',
+                    per_page: 10
+                  })
+                ]);
+                
+                const recentPRs = pulls.data.filter(pr => 
+                  pr.merged_at && new Date(pr.merged_at) > threeDaysAgo
+                );
+                
+                const hasActivity = commits.data.length > 0 || 
+                                   issues.data.length > 0 || 
+                                   recentPRs.length > 0;
+                
+                if (!hasActivity) {
+                  addEscalation(
+                    repoFullName,
+                    'no-activity-72h',
+                    'warning',
+                    `No commits, issues closed, or PRs merged in 72 hours`
+                  );
+                  core.warning(`⚠️  ${repoFullName}: No activity detected in 72h`);
+                }
+                
+                // CHECK 2: Build failing >3 runs
+                try {
+                  const workflowRuns = await github.rest.actions.listWorkflowRunsForRepo({
+                    owner,
+                    repo,
+                    per_page: 3,
+                    status: 'completed'
+                  });
+                  
+                  if (workflowRuns.data.workflow_runs.length >= 3) {
+                    const lastThree = workflowRuns.data.workflow_runs.slice(0, 3);
+                    const allFailed = lastThree.every(run => run.conclusion === 'failure');
+                    
+                    if (allFailed) {
+                      addEscalation(
+                        repoFullName,
+                        'build-failing-3-runs',
+                        'critical',
+                        `Last 3 workflow runs failed: ${lastThree.map(r => r.name).join(', ')}`
+                      );
+                      core.error(`🔥 ${repoFullName}: Build failing for 3+ consecutive runs`);
+                    }
+                  }
+                } catch (error) {
+                  core.debug(`No workflow runs found for ${repoFullName} (may not have Actions enabled)`);
+                }
+                
+                // CHECK 3: Roadmap stuck >7 days
+                try {
+                  const roadmapContent = await github.rest.repos.getContent({
+                    owner,
+                    repo,
+                    path: 'roadmap.md'
+                  });
+                  
+                  const content = Buffer.from(roadmapContent.data.content, 'base64').toString();
+                  const hasUncheckedItems = /^[\s]*[-*]\s*\[ \]/m.test(content);
+                  
+                  if (hasUncheckedItems) {
+                    // Check if any new issues created in last 7 days
+                    const recentIssues = await github.rest.issues.listForRepo({
+                      owner,
+                      repo,
+                      since: sevenDaysAgo.toISOString(),
+                      per_page: 1
+                    });
+                    
+                    if (recentIssues.data.length === 0) {
+                      addEscalation(
+                        repoFullName,
+                        'roadmap-stuck-7d',
+                        'warning',
+                        `Roadmap has unchecked items but no new issues created in 7 days`
+                      );
+                      core.warning(`⚠️  ${repoFullName}: Roadmap appears stuck (no progress in 7d)`);
+                    }
+                  }
+                } catch (error) {
+                  core.debug(`No roadmap.md found for ${repoFullName}`);
+                }
+                
+                // CHECK 4: Issue open >5 days with no PR
+                const copilotReadyIssues = await github.rest.issues.listForRepo({
+                  owner,
+                  repo,
+                  state: 'open',
+                  labels: 'copilot-ready',
+                  per_page: 100
+                });
+                
+                for (const issue of copilotReadyIssues.data) {
+                  const issueAge = now - new Date(issue.created_at);
+                  const fiveDaysMs = 5 * 24 * 60 * 60 * 1000;
+                  
+                  if (issueAge > fiveDaysMs) {
+                    // Check if there's a linked PR (via timeline events)
+                    const timeline = await github.rest.issues.listEventsForTimeline({
+                      owner,
+                      repo,
+                      issue_number: issue.number,
+                      per_page: 100
+                    });
+                    
+                    const hasLinkedPR = timeline.data.some(event => 
+                      event.event === 'cross-referenced' && 
+                      event.source && 
+                      event.source.type === 'issue' &&
+                      event.source.issue.pull_request
+                    );
+                    
+                    if (!hasLinkedPR) {
+                      addEscalation(
+                        repoFullName,
+                        'stale-copilot-ready',
+                        'warning',
+                        `Issue #${issue.number} "${issue.title}" open >5 days with no PR`
+                      );
+                      core.warning(`⚠️  ${repoFullName}: Issue #${issue.number} stuck without PR`);
+                      
+                      // Add diagnostic comment to the issue
+                      const commentBody = [
+                        '🤖 **Safety Net Alert**',
+                        '',
+                        'This `copilot-ready` issue has been open for >5 days without a linked PR.',
+                        '',
+                        '**Diagnostic Info:**',
+                        `- Created: ${issue.created_at}`,
+                        `- Age: ${Math.floor(issueAge / (24 * 60 * 60 * 1000))} days`,
+                        `- Assignees: ${issue.assignees.map(a => a.login).join(', ') || 'None'}`,
+                        '',
+                        '**Possible causes:**',
+                        '- @copilot has not started work',
+                        '- Work in progress but no PR opened yet',
+                        '- Issue blocked by dependencies',
+                        '',
+                        'This is an escalation — human review recommended.'
+                      ].join('\n');
+                      
+                      await github.rest.issues.createComment({
+                        owner,
+                        repo,
+                        issue_number: issue.number,
+                        body: commentBody
+                      });
+                    }
+                  }
+                }
+                
+              } catch (error) {
+                core.error(`Error checking ${repoFullName}: ${error.message}`);
+                addEscalation(
+                  repoFullName,
+                  'check-error',
+                  'error',
+                  `Failed to check repo: ${error.message}`
+                );
+              }
+            }
+            
+            // Generate escalation report
+            if (escalations.length > 0) {
+              core.info(`\n📋 Found ${escalations.length} escalation(s)`);
+              
+              // Create escalation summary file
+              const dateStr = now.toISOString().split('T')[0];
+              const escalationDir = path.join(process.env.GITHUB_WORKSPACE, '.squad/escalations');
+              
+              // Ensure directory exists
+              if (!fs.existsSync(escalationDir)) {
+                fs.mkdirSync(escalationDir, { recursive: true });
+              }
+              
+              // Group escalations by repo
+              const byRepo = {};
+              for (const esc of escalations) {
+                if (!byRepo[esc.repo]) byRepo[esc.repo] = [];
+                byRepo[esc.repo].push(esc);
+              }
+              
+              // Create summary file for each repo with issues
+              for (const [repo, issues] of Object.entries(byRepo)) {
+                const safeRepoName = repo.replace('/', '-');
+                const issueTypes = issues.map(i => i.issueType).join('-');
+                const filename = `${dateStr}-${safeRepoName}-${issueTypes}.md`;
+                const filepath = path.join(escalationDir, filename);
+                
+                const report = [
+                  '# Safety Net Escalation Report',
+                  '',
+                  `**Repository:** ${repo}`,
+                  `**Date:** ${now.toISOString()}`,
+                  `**Issues Found:** ${issues.length}`,
+                  '',
+                  '## Escalations',
+                  '',
+                  issues.map(esc => [
+                    `### ${esc.issueType} (${esc.severity})`,
+                    '',
+                    esc.details,
+                    '',
+                    `**Timestamp:** ${esc.timestamp}`,
+                    ''
+                  ].join('\n')).join('\n'),
+                  '## Next Steps',
+                  '',
+                  'This is an escalation report. The safety net does NOT auto-fix — human review required.',
+                  '',
+                  '**Recommended Actions:**',
+                  '1. Review the specific issues listed above',
+                  '2. Check repo health: workflows, dependencies, recent activity',
+                  '3. Manually address blockers or reassign work',
+                  '4. Update roadmap if priorities have changed',
+                  '',
+                  '---',
+                  '*Generated by safety-net.yml*'
+                ].join('\n');
+                
+                fs.writeFileSync(filepath, report);
+                core.info(`📄 Created escalation file: ${filename}`);
+              }
+              
+              // Create GitHub issue for escalation summary
+              const criticalCount = escalations.filter(e => e.severity === 'critical').length;
+              const warningCount = escalations.filter(e => e.severity === 'warning').length;
+              
+              const issueBody = [
+                '# 🚨 Safety Net Alert',
+                '',
+                `The daily safety net scan detected ${escalations.length} issue(s) across the constellation.`,
+                '',
+                '## Summary',
+                '',
+                `- 🔥 **Critical:** ${criticalCount}`,
+                `- ⚠️  **Warning:** ${warningCount}`,
+                `- ❌ **Error:** ${escalations.filter(e => e.severity === 'error').length}`,
+                '',
+                '## Affected Repositories',
+                '',
+                Object.entries(byRepo).map(([repo, issues]) => 
+                  `### ${repo}\n${issues.map(i => `- [${i.severity.toUpperCase()}] ${i.issueType}: ${i.details}`).join('\n')}`
+                ).join('\n\n'),
+                '',
+                '## Files Created',
+                '',
+                Object.keys(byRepo).map(repo => {
+                  const safeRepoName = repo.replace('/', '-');
+                  const repoIssues = byRepo[repo];
+                  const issueTypes = repoIssues.map(i => i.issueType).join('-');
+                  return `- \`.squad/escalations/${dateStr}-${safeRepoName}-${issueTypes}.md\``;
+                }).join('\n'),
+                '',
+                '## Action Required',
+                '',
+                '**This is an ESCALATION — the safety net does NOT auto-fix.**',
+                '',
+                'Human review is required to:',
+                '1. Investigate root causes',
+                '2. Unblock stuck work',
+                '3. Restart failed pipelines',
+                '4. Update priorities if needed',
+                '',
+                '---',
+                `*Scan completed at ${now.toISOString()}*`,
+                '*Next scan: Tomorrow at 00:00 UTC*'
+              ].join('\n');
+              
+              const issue = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `🚨 Safety Net Alert — ${escalations.length} issue(s) detected (${dateStr})`,
+                body: issueBody,
+                labels: ['status:needs-attention', 'safety-net']
+              });
+              
+              core.info(`✅ Created escalation issue #${issue.data.number}`);
+              
+              // Add to step summary
+              core.summary
+                .addHeading('Safety Net Report', 2)
+                .addRaw(`Found ${escalations.length} escalation(s)`)
+                .addBreak()
+                .addRaw(`Critical: ${criticalCount} | Warning: ${warningCount}`)
+                .addBreak()
+                .addLink('View Issue', issue.data.html_url)
+                .write();
+                
+            } else {
+              core.info('✅ All repositories healthy — no escalations');
+              core.summary
+                .addHeading('Safety Net Report', 2)
+                .addRaw('✅ All repositories in constellation are healthy')
+                .addBreak()
+                .addRaw(`Checked ${repos.length} repositories at ${now.toISOString()}`)
+                .write();
+            }
+
+      - name: Commit escalation files
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          if [ -d ".squad/escalations" ] && [ -n "$(ls -A .squad/escalations 2>/dev/null)" ]; then
+            git add .squad/escalations/*.md
+            if git diff --staged --quiet; then
+              echo "No new escalation files to commit"
+            else
+              git commit -m "safety-net: escalation reports $(date -u +%Y-%m-%d)
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+              git push
+              echo "✅ Escalation files committed"
+            fi
+          else
+            echo "No escalation files to commit"
+          fi
