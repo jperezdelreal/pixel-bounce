@@ -68,6 +68,14 @@ function sfxGameOver() {
   setTimeout(() => playTone(200, 0.3, 'sawtooth', 0.1), 240);
 }
 
+function sfxBouncy() { playTone(600, 0.15, 'sine', 0.15); playTone(900, 0.1, 'sine', 0.1); }
+function sfxBreakable() { playTone(150, 0.2, 'sawtooth', 0.1); }
+function sfxPortal() {
+  playTone(500, 0.1, 'sine', 0.12);
+  setTimeout(() => playTone(800, 0.1, 'sine', 0.12), 80);
+  setTimeout(() => playTone(1200, 0.15, 'sine', 0.1), 160);
+}
+
 function startBGM() {
   if (!audioCtx || muted) return;
   bgmGain = audioCtx.createGain();
@@ -140,11 +148,20 @@ canvas.addEventListener('touchend', e => { e.preventDefault(); touchX = null; },
 // --- Factories ---
 function makePlatform(y) {
   const w = 60 + Math.random() * 50;
+  const roll = Math.random();
+  let type;
+  if (roll < 0.03 && score > 300) type = 'portal';
+  else if (roll < 0.11 && score > 100) type = 'breakable';
+  else if (roll < 0.21) type = 'bouncy';
+  else if (roll < 0.36) type = 'moving';
+  else type = 'static';
   return {
     x: Math.random() * (W - w), y, w, h: 10,
-    type: Math.random() < 0.15 ? 'moving' : 'static',
+    type,
     dir: Math.random() < 0.5 ? 1 : -1,
-    speed: 1 + Math.random() * 1.5
+    speed: 1 + Math.random() * 1.5,
+    broken: false,
+    pulse: Math.random() * Math.PI * 2
   };
 }
 
@@ -218,12 +235,32 @@ function update() {
   // Platform collision (only when falling)
   if (ball.vy > 0) {
     for (const p of platforms) {
+      if (p.broken) continue;
       if (ball.x + ball.r > p.x && ball.x - ball.r < p.x + p.w &&
           ball.y + ball.r >= p.y && ball.y + ball.r <= p.y + p.h + ball.vy + 2) {
-        ball.vy = -10 - Math.min(score * 0.02, 4);
-        ball.y = p.y - ball.r;
-        sfxBounce(ball.vy);
-        spawnParticles(ball.x, p.y, '#e94560', 5);
+        const baseVy = -10 - Math.min(score * 0.02, 4);
+        if (p.type === 'bouncy') {
+          ball.vy = baseVy * 2;
+          sfxBouncy();
+          spawnParticles(ball.x, p.y, '#00ff88', 8);
+        } else if (p.type === 'breakable') {
+          ball.vy = baseVy;
+          p.broken = true;
+          sfxBreakable();
+          spawnParticles(ball.x, p.y, '#ff8c00', 12);
+        } else if (p.type === 'portal') {
+          const highest = Math.min(...platforms.filter(q => !q.broken && q !== p).map(q => q.y));
+          ball.y = highest - ball.r - 20;
+          ball.vy = baseVy;
+          sfxPortal();
+          spawnParticles(ball.x, p.y, '#b44dff', 15);
+          spawnParticles(ball.x, ball.y, '#b44dff', 10);
+        } else {
+          ball.vy = baseVy;
+          sfxBounce(ball.vy);
+          spawnParticles(ball.x, p.y, '#e94560', 5);
+        }
+        ball.y = p.type === 'portal' ? ball.y : p.y - ball.r;
         break;
       }
     }
@@ -262,8 +299,8 @@ function update() {
     highestY = newP.y;
   }
 
-  // Cleanup off-screen
-  platforms = platforms.filter(p => p.y < cameraY + H + 50);
+  // Cleanup off-screen + broken platforms
+  platforms = platforms.filter(p => !p.broken && p.y < cameraY + H + 50);
   stars = stars.filter(s => !s.collected && s.y < cameraY + H + 50);
 
   // Star collection
@@ -317,13 +354,53 @@ function draw() {
 
   // Platforms
   for (const p of platforms) {
-    const c1 = p.type === 'moving' ? '#16c79a' : '#e94560';
-    const c2 = p.type === 'moving' ? '#0e8a6d' : '#c81e45';
+    if (p.broken) continue;
+    let c1, c2;
+    switch (p.type) {
+      case 'bouncy':
+        p.pulse += 0.06;
+        c1 = '#00ff88'; c2 = '#00cc66';
+        break;
+      case 'breakable':
+        c1 = '#ff8c00'; c2 = '#cc6600';
+        break;
+      case 'portal':
+        p.pulse += 0.08;
+        c1 = '#b44dff'; c2 = '#8800cc';
+        break;
+      case 'moving':
+        c1 = '#16c79a'; c2 = '#0e8a6d';
+        break;
+      default:
+        c1 = '#e94560'; c2 = '#c81e45';
+    }
     const pg = ctx.createLinearGradient(p.x, p.y, p.x, p.y + p.h);
     pg.addColorStop(0, c1); pg.addColorStop(1, c2);
     ctx.fillStyle = pg;
-    roundRect(ctx, p.x, p.y, p.w, p.h, 3);
+    // Bouncy platforms pulse in size
+    const scaleW = p.type === 'bouncy' ? 1 + Math.sin(p.pulse) * 0.03 : 1;
+    const drawX = p.x - (p.w * scaleW - p.w) / 2;
+    roundRect(ctx, drawX, p.y, p.w * scaleW, p.h, 3);
     ctx.fill();
+    // Breakable crack lines
+    if (p.type === 'breakable') {
+      ctx.strokeStyle = '#553300';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(p.x + p.w * 0.3, p.y);
+      ctx.lineTo(p.x + p.w * 0.5, p.y + p.h);
+      ctx.moveTo(p.x + p.w * 0.7, p.y);
+      ctx.lineTo(p.x + p.w * 0.55, p.y + p.h);
+      ctx.stroke();
+    }
+    // Portal shimmer
+    if (p.type === 'portal') {
+      ctx.globalAlpha = 0.3 + Math.sin(p.pulse) * 0.2;
+      ctx.fillStyle = '#e0aaff';
+      roundRect(ctx, p.x, p.y, p.w, p.h, 3);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
   }
 
   // Stars
