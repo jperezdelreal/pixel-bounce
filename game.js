@@ -162,12 +162,17 @@ function update() {
     maxHeight = height;
   }
 
-  // Spawn new platforms above
-  const highestY = Math.min(...platforms.map(p => p.y));
-  if (highestY > cameraY - 50) {
-    const newP = makePlatform(highestY - (55 + Math.random() * 30));
+  // Spawn new platforms above — spacing scales with jump capability
+  let highestY = Math.min(...platforms.map(p => p.y));
+  while (highestY > cameraY - 100) {
+    const bounceVy = 10 + Math.min(score * 0.02, 4);
+    const maxJump = (bounceVy * bounceVy) / (2 * 0.35);
+    const safeGap = maxJump * 0.4;
+    const gap = 50 + Math.random() * Math.max(safeGap - 50, 10);
+    const newP = makePlatform(highestY - gap);
     platforms.push(newP);
     if (Math.random() < 0.4) stars.push(makeStar(newP.y - 60, newP.y - 10));
+    highestY = newP.y;
   }
 
   // Cleanup off-screen
