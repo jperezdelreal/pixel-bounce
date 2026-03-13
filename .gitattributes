@@ -1,0 +1,5 @@
+# Squad append-only files — use merge=union to avoid conflicts
+.squad/decisions.md merge=union
+.squad/agents/*/history.md merge=union
+.squad/log/*.md merge=union
+.squad/orchestration-log/*.md merge=union

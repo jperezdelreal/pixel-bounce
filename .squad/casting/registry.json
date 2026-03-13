@@ -1,0 +1,30 @@
+{
+  "universe": "Mega Man",
+  "repo": "pixel-bounce",
+  "members": [
+    {
+      "name": "Proto Man",
+      "agent_id": "protoman",
+      "role": "Lead / Architect",
+      "legacy_named": false,
+      "status": "active",
+      "charter": ".squad/agents/protoman/charter.md"
+    },
+    {
+      "name": "Cut Man",
+      "agent_id": "cutman",
+      "role": "Game Developer",
+      "legacy_named": false,
+      "status": "active",
+      "charter": ".squad/agents/cutman/charter.md"
+    },
+    {
+      "name": "Guts Man",
+      "agent_id": "gutsman",
+      "role": "Tester / QA",
+      "legacy_named": false,
+      "status": "active",
+      "charter": ".squad/agents/gutsman/charter.md"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "universe": "Mega Man",
+  "policy": {
+    "max_team_size": 6,
+    "require_lead": true,
+    "require_qa": true,
+    "auto_assign_copilot": true,
+    "legacy_named": false
+  },
+  "defaults": {
+    "model": "auto",
+    "status": "active"
+  }
+}
