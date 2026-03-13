@@ -24,6 +24,14 @@ const ball = { x: W / 2, y: H / 2, vx: 0, vy: 0, r: 8 };
 const keys = {};
 let touchX = null;
 
+// Cache canvas bounding rect to avoid layout thrashing on every touch move.
+// Initialized immediately (script runs after body is parsed so layout is available),
+// then refreshed whenever the canvas is resized or the device is rotated.
+let cachedRect = canvas.getBoundingClientRect();
+function updateCachedRect() { cachedRect = canvas.getBoundingClientRect(); }
+new ResizeObserver(updateCachedRect).observe(canvas);
+window.addEventListener('orientationchange', updateCachedRect);
+
 // --- Input ---
 document.onkeydown = e => {
   keys[e.key] = true;
@@ -33,18 +41,16 @@ document.onkeyup = e => { keys[e.key] = false; };
 
 canvas.onclick = () => { if (state !== STATE.PLAY) startGame(); };
 
-canvas.ontouchstart = e => {
+canvas.addEventListener('touchstart', e => {
   e.preventDefault();
   if (state !== STATE.PLAY) { startGame(); return; }
-  const rect = canvas.getBoundingClientRect();
-  touchX = (e.touches[0].clientX - rect.left) / rect.width * W;
-};
-canvas.ontouchmove = e => {
+  touchX = (e.touches[0].clientX - cachedRect.left) / cachedRect.width * W;
+}, { passive: false });
+canvas.addEventListener('touchmove', e => {
   e.preventDefault();
-  const rect = canvas.getBoundingClientRect();
-  touchX = (e.touches[0].clientX - rect.left) / rect.width * W;
-};
-canvas.ontouchend = e => { e.preventDefault(); touchX = null; };
+  touchX = (e.touches[0].clientX - cachedRect.left) / cachedRect.width * W;
+}, { passive: false });
+canvas.addEventListener('touchend', e => { e.preventDefault(); touchX = null; }, { passive: false });
 
 // --- Factories ---
 function makePlatform(y) {
