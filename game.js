@@ -24,6 +24,90 @@ const ball = { x: W / 2, y: H / 2, vx: 0, vy: 0, r: 8 };
 const keys = {};
 let touchX = null;
 
+// --- Audio (WebAudio API — procedural, zero external files) ---
+let audioCtx = null;
+let muted = localStorage.getItem('pb_mute') === '1';
+let audioUnlocked = false;
+let bgmGain = null;
+let bgmTimeout = null;
+
+function ensureAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  audioUnlocked = true;
+  startBGM();
+}
+
+function playTone(freq, duration, type, vol) {
+  if (!audioCtx || muted) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = type || 'square';
+  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+  gain.gain.setValueAtTime(vol || 0.15, audioCtx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start();
+  osc.stop(audioCtx.currentTime + duration);
+}
+
+function sfxBounce(vy) {
+  const pitch = 200 + Math.abs(vy) * 30;
+  playTone(pitch, 0.1, 'square', 0.12);
+}
+
+function sfxStar() {
+  playTone(880, 0.08, 'square', 0.1);
+  setTimeout(() => playTone(1100, 0.12, 'square', 0.1), 60);
+}
+
+function sfxGameOver() {
+  playTone(400, 0.15, 'sawtooth', 0.12);
+  setTimeout(() => playTone(300, 0.15, 'sawtooth', 0.12), 120);
+  setTimeout(() => playTone(200, 0.3, 'sawtooth', 0.1), 240);
+}
+
+function startBGM() {
+  if (!audioCtx || muted) return;
+  bgmGain = audioCtx.createGain();
+  bgmGain.gain.setValueAtTime(0.04, audioCtx.currentTime);
+  bgmGain.connect(audioCtx.destination);
+
+  // Simple 8-bit arpeggio loop
+  const notes = [262, 330, 392, 523, 392, 330, 262, 196];
+  const noteLen = 0.18;
+  function playLoop() {
+    if (!audioCtx || muted) return;
+    const now = audioCtx.currentTime;
+    notes.forEach((freq, i) => {
+      const osc = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(freq, now + i * noteLen);
+      g.gain.setValueAtTime(0.04, now + i * noteLen);
+      g.gain.exponentialRampToValueAtTime(0.001, now + i * noteLen + noteLen * 0.9);
+      osc.connect(g);
+      g.connect(audioCtx.destination);
+      osc.start(now + i * noteLen);
+      osc.stop(now + i * noteLen + noteLen);
+    });
+    bgmTimeout = setTimeout(playLoop, notes.length * noteLen * 1000);
+  }
+  playLoop();
+}
+
+function stopBGM() {
+  if (bgmTimeout) { clearTimeout(bgmTimeout); bgmTimeout = null; }
+}
+
+function toggleMute() {
+  muted = !muted;
+  localStorage.setItem('pb_mute', muted ? '1' : '0');
+  if (muted) stopBGM();
+  else if (audioCtx) startBGM();
+}
+
 // Cache canvas bounding rect to avoid layout thrashing on every touch move.
 // Initialized immediately (script runs after body is parsed so layout is available),
 // then refreshed whenever the canvas is resized or the device is rotated.
@@ -35,6 +119,7 @@ window.addEventListener('orientationchange', updateCachedRect);
 // --- Input ---
 document.onkeydown = e => {
   keys[e.key] = true;
+  if (e.key === 'm' || e.key === 'M') toggleMute();
   if ((e.key === ' ' || e.key === 'Enter') && state !== STATE.PLAY) startGame();
 };
 document.onkeyup = e => { keys[e.key] = false; };
@@ -85,6 +170,7 @@ function spawnParticles(x, y, color, count) {
 
 // --- Game Init ---
 function startGame() {
+  ensureAudio();
   state = STATE.PLAY;
   score = 0;
   cameraY = 0;
@@ -136,6 +222,7 @@ function update() {
           ball.y + ball.r >= p.y && ball.y + ball.r <= p.y + p.h + ball.vy + 2) {
         ball.vy = -10 - Math.min(score * 0.02, 4);
         ball.y = p.y - ball.r;
+        sfxBounce(ball.vy);
         spawnParticles(ball.x, p.y, '#e94560', 5);
         break;
       }
@@ -186,6 +273,7 @@ function update() {
     if (Math.sqrt(dx * dx + dy * dy) < ball.r + s.r + 4) {
       s.collected = true;
       score += 25;
+      sfxStar();
       spawnParticles(s.x, s.y, '#ffd700', 10);
     }
   }
@@ -200,6 +288,7 @@ function update() {
   // Game over
   if (ball.y - cameraY > H + 50) {
     state = STATE.OVER;
+    sfxGameOver();
     if (score > highScore) {
       highScore = score;
       localStorage.setItem('pb_hi', String(highScore));
@@ -278,6 +367,11 @@ function draw() {
   ctx.font = '14px "Courier New", monospace';
   ctx.fillStyle = '#aaa';
   ctx.fillText('Best: ' + highScore, W - 12, 28);
+  // Mute indicator
+  ctx.textAlign = 'center';
+  ctx.font = '12px "Courier New", monospace';
+  ctx.fillStyle = muted ? '#e94560' : '#555';
+  ctx.fillText(muted ? '🔇 M' : '🔊 M', W / 2, 18);
 
   if (state === STATE.TITLE) drawTitleScreen();
   if (state === STATE.OVER) drawGameOver();
