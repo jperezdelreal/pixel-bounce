@@ -10,7 +10,7 @@ const H = 600;
 canvas.width = W;
 canvas.height = H;
 
-const STATE = { TITLE: 0, PLAY: 1, OVER: 2 };
+const STATE = { TITLE: 0, PLAY: 1, OVER: 2, DAILY: 3 };
 let state = STATE.TITLE;
 let score = 0;
 let highScore = parseInt(localStorage.getItem('pb_hi') || '0', 10);
@@ -113,6 +113,50 @@ function checkAchievements() {
     }
   }
   localStorage.setItem('pb_achievements', JSON.stringify(unlockedAchievements));
+}
+
+// --- Daily Challenge ---
+const DAILY_MODIFIERS = [
+  { name: 'Heavy Gravity', icon: '🪨', apply: m => { m.gravity = 0.525; } },
+  { name: 'Mega Bounce', icon: '🦘', apply: m => { m.bounceMul = 1.5; } },
+  { name: 'Tiny Ball', icon: '🔬', apply: m => { m.ballRadius = 4; } },
+  { name: 'Star Rain', icon: '🌧️', apply: m => { m.starRate = 0.8; } },
+  { name: 'Narrow Platforms', icon: '📏', apply: m => { m.platformScale = 0.7; } },
+  { name: 'Fast Platforms', icon: '💨', apply: m => { m.moveChance = 0.3; m.moveSpeed = 2; } },
+];
+
+let isDailyMode = false;
+let dailyMods = { gravity: 0.35, bounceMul: 1, ballRadius: 8, starRate: 0.4, platformScale: 1, moveChance: 0.15, moveSpeed: 1 };
+const defaultMods = { ...dailyMods };
+
+function seededRandom(seed) {
+  let s = seed;
+  return function() { s = (s * 16807 + 0) % 2147483647; return (s - 1) / 2147483646; };
+}
+
+function getDailyKey() { return new Date().toISOString().slice(0, 10); }
+
+function getDailyModifiers() {
+  const seed = getDailyKey().split('-').reduce((a, b) => a * 31 + parseInt(b), 0);
+  const rng = seededRandom(Math.abs(seed));
+  const count = rng() < 0.4 ? 1 : 2;
+  const shuffled = [...DAILY_MODIFIERS].sort(() => rng() - 0.5);
+  return shuffled.slice(0, count);
+}
+
+function getDailyData() {
+  const key = 'pb_daily_' + getDailyKey();
+  return JSON.parse(localStorage.getItem(key) || '{"scores":[],"attempts":0}');
+}
+
+function saveDailyScore(s) {
+  const key = 'pb_daily_' + getDailyKey();
+  const data = getDailyData();
+  data.attempts++;
+  data.scores.push(s);
+  data.scores.sort((a, b) => b - a);
+  data.scores = data.scores.slice(0, 3);
+  localStorage.setItem(key, JSON.stringify(data));
 }
 
 const ball = { x: W / 2, y: H / 2, vx: 0, vy: 0, r: 8 };
@@ -226,24 +270,26 @@ new ResizeObserver(updateCachedRect).observe(canvas);
 window.addEventListener('orientationchange', updateCachedRect);
 
 // --- Input ---
+const isPlaying = () => state === STATE.PLAY || state === STATE.DAILY;
 document.onkeydown = e => {
   keys[e.key] = true;
   if (e.key === 'm' || e.key === 'M') toggleMute();
-  if ((e.key === 'a' || e.key === 'A') && state !== STATE.PLAY) showAchievementOverlay = !showAchievementOverlay;
+  if ((e.key === 'a') && !isPlaying()) showAchievementOverlay = !showAchievementOverlay;
   // Skin selector on title screen
-  if (state === STATE.TITLE) {
+  if (state === STATE.TITLE && !showAchievementOverlay) {
     if (e.key === 'ArrowLeft') { selectedSkin = (selectedSkin - 1 + SKINS.length) % SKINS.length; localStorage.setItem('pb_skin', selectedSkin); }
     if (e.key === 'ArrowRight') { selectedSkin = (selectedSkin + 1) % SKINS.length; localStorage.setItem('pb_skin', selectedSkin); }
   }
-  if ((e.key === ' ' || e.key === 'Enter') && state !== STATE.PLAY) startGame();
+  if (e.key === 'd' && state === STATE.TITLE && !showAchievementOverlay) startGame(true);
+  if ((e.key === ' ' || e.key === 'Enter') && !isPlaying()) startGame();
 };
 document.onkeyup = e => { keys[e.key] = false; };
 
-canvas.onclick = () => { if (state !== STATE.PLAY) startGame(); };
+canvas.onclick = () => { if (!isPlaying()) startGame(); };
 
 canvas.addEventListener('touchstart', e => {
   e.preventDefault();
-  if (state !== STATE.PLAY) { startGame(); return; }
+  if (!isPlaying()) { startGame(); return; }
   touchX = (e.touches[0].clientX - cachedRect.left) / cachedRect.width * W;
 }, { passive: false });
 canvas.addEventListener('touchmove', e => {
@@ -254,19 +300,19 @@ canvas.addEventListener('touchend', e => { e.preventDefault(); touchX = null; },
 
 // --- Factories ---
 function makePlatform(y) {
-  const w = 60 + Math.random() * 50;
+  const w = (60 + Math.random() * 50) * dailyMods.platformScale;
   const roll = Math.random();
   let type;
   if (roll < 0.03 && score > 300) type = 'portal';
   else if (roll < 0.11 && score > 100) type = 'breakable';
   else if (roll < 0.21) type = 'bouncy';
-  else if (roll < 0.36) type = 'moving';
+  else if (roll < dailyMods.moveChance + 0.21) type = 'moving';
   else type = 'static';
   return {
     x: Math.random() * (W - w), y, w, h: 10,
     type,
     dir: Math.random() < 0.5 ? 1 : -1,
-    speed: 1 + Math.random() * 1.5,
+    speed: (1 + Math.random() * 1.5) * dailyMods.moveSpeed,
     broken: false,
     pulse: Math.random() * Math.PI * 2
   };
@@ -303,9 +349,19 @@ function makePowerUp(x, y) {
 }
 
 // --- Game Init ---
-function startGame() {
+function startGame(daily) {
   ensureAudio();
-  state = STATE.PLAY;
+  isDailyMode = !!daily;
+  // Reset modifiers
+  Object.assign(dailyMods, defaultMods);
+  if (isDailyMode) {
+    const dd = getDailyData();
+    if (dd.attempts >= 3) return; // max 3 daily attempts
+    getDailyModifiers().forEach(m => m.apply(dailyMods));
+    state = STATE.DAILY;
+  } else {
+    state = STATE.PLAY;
+  }
   score = 0;
   cameraY = 0;
   maxHeight = 0;
@@ -313,6 +369,7 @@ function startGame() {
   ball.y = H - 100;
   ball.vx = 0;
   ball.vy = -8;
+  ball.r = dailyMods.ballRadius;
   platforms = [];
   stars = [];
   particles = [];
@@ -326,7 +383,7 @@ function startGame() {
   saveStats();
 
   // Starting platform directly under the ball
-  platforms.push({ x: W / 2 - 40, y: H - 60, w: 80, h: 10, type: 'static', dir: 0, speed: 0 });
+  platforms.push({ x: W / 2 - 40, y: H - 60, w: 80, h: 10, type: 'static', dir: 0, speed: 0, broken: false, pulse: 0 });
   for (let i = 0; i < 8; i++) {
     platforms.push(makePlatform(H - 120 - i * 70));
   }
@@ -337,11 +394,11 @@ function startGame() {
 
 // --- Update ---
 function update() {
-  if (state !== STATE.PLAY) return;
+  if (state !== STATE.PLAY && state !== STATE.DAILY) return;
 
   const accel = 0.5;
   ball.vx *= 0.92;
-  ball.vy += 0.35;
+  ball.vy += dailyMods.gravity;
 
   if (keys['ArrowLeft'] || keys['a'] || keys['A']) ball.vx -= accel;
   if (keys['ArrowRight'] || keys['d'] || keys['D']) ball.vx += accel;
@@ -363,7 +420,7 @@ function update() {
       if (p.broken) continue;
       if (ball.x + ball.r > p.x && ball.x - ball.r < p.x + p.w &&
           ball.y + ball.r >= p.y && ball.y + ball.r <= p.y + p.h + ball.vy + 2) {
-        const baseVy = -10 - Math.min(score * 0.02, 4);
+        const baseVy = (-10 - Math.min(score * 0.02, 4)) * dailyMods.bounceMul;
         runBounces++;
         // Boost power-up: amplify next bounce
         const boostMul = (activePower && activePower.type === 'boost') ? 2.5 : 1;
@@ -418,13 +475,13 @@ function update() {
   // Spawn new platforms above — spacing scales with jump capability
   let highestY = Math.min(...platforms.map(p => p.y));
   while (highestY > cameraY - 100) {
-    const bounceVy = 10 + Math.min(score * 0.02, 4);
-    const maxJump = (bounceVy * bounceVy) / (2 * 0.35);
+    const bounceVy = (10 + Math.min(score * 0.02, 4)) * dailyMods.bounceMul;
+    const maxJump = (bounceVy * bounceVy) / (2 * dailyMods.gravity);
     const safeGap = maxJump * 0.4;
     const gap = 50 + Math.random() * Math.max(safeGap - 50, 10);
     const newP = makePlatform(highestY - gap);
     platforms.push(newP);
-    if (Math.random() < 0.4) stars.push(makeStar(newP.y - 60, newP.y - 10));
+    if (Math.random() < dailyMods.starRate) stars.push(makeStar(newP.y - 60, newP.y - 10));
     // Spawn power-up every ~200 height units
     const currentHeight = -(newP.y - H);
     if (currentHeight - lastPowerUpHeight >= 200) {
@@ -500,10 +557,12 @@ function update() {
       if (score > stats.bestScore) stats.bestScore = score;
       saveStats();
       checkAchievements();
-      if (score > highScore) {
+      if (isDailyMode) saveDailyScore(score);
+      if (!isDailyMode && score > highScore) {
         highScore = score;
         localStorage.setItem('pb_hi', String(highScore));
       }
+      ball.r = 8; // reset radius
     }
   }
 }
@@ -633,6 +692,13 @@ function draw() {
   ctx.font = '14px "Courier New", monospace';
   ctx.fillStyle = '#aaa';
   ctx.fillText('Best: ' + highScore, W - 12, 28);
+  // Daily mode indicator
+  if (isDailyMode) {
+    ctx.textAlign = 'right';
+    ctx.font = 'bold 11px "Courier New", monospace';
+    ctx.fillStyle = '#ffd700';
+    ctx.fillText('DAILY', W - 12, 44);
+  }
   // Mute indicator
   ctx.textAlign = 'center';
   ctx.font = '12px "Courier New", monospace';
@@ -741,6 +807,20 @@ function drawTitleScreen() {
     ctx.fillStyle = '#666'; ctx.font = '14px sans-serif';
     ctx.fillText('?', W / 2, H / 2 + 155);
   }
+  // Daily challenge button
+  const todayMods = getDailyModifiers();
+  const dd = getDailyData();
+  ctx.fillStyle = dd.attempts >= 3 ? '#555' : '#ffd700';
+  ctx.font = 'bold 13px "Courier New", monospace';
+  ctx.fillText('[ D ] Daily Challenge', W / 2, H / 2 + 185);
+  ctx.font = '10px "Courier New", monospace';
+  ctx.fillStyle = '#aaa';
+  ctx.fillText(todayMods.map(m => m.icon + ' ' + m.name).join(' + '), W / 2, H / 2 + 200);
+  ctx.fillText('Attempts: ' + dd.attempts + '/3' + (dd.scores.length ? '  Best: ' + dd.scores[0] : ''), W / 2, H / 2 + 215);
+  // Controls hint
+  ctx.fillStyle = '#555';
+  ctx.font = '10px "Courier New", monospace';
+  ctx.fillText('[A] Achievements  [M] Mute', W / 2, H / 2 + 240);
 }
 
 function drawGameOver() {
@@ -749,18 +829,27 @@ function drawGameOver() {
   ctx.textAlign = 'center';
   ctx.fillStyle = '#e94560';
   ctx.font = 'bold 36px "Courier New", monospace';
-  ctx.fillText('GAME OVER', W / 2, H / 2 - 40);
+  ctx.fillText(isDailyMode ? 'DAILY OVER' : 'GAME OVER', W / 2, H / 2 - 40);
   ctx.fillStyle = '#fff';
   ctx.font = '22px "Courier New", monospace';
   ctx.fillText('Score: ' + score, W / 2, H / 2 + 10);
-  if (score >= highScore && score > 0) {
+  if (!isDailyMode && score >= highScore && score > 0) {
     ctx.fillStyle = '#ffd700';
     ctx.font = 'bold 16px "Courier New", monospace';
     ctx.fillText('NEW HIGH SCORE!', W / 2, H / 2 + 40);
   }
+  if (isDailyMode) {
+    const dd = getDailyData();
+    ctx.fillStyle = '#ffd700';
+    ctx.font = '14px "Courier New", monospace';
+    ctx.fillText('Daily Best: ' + (dd.scores[0] || 0), W / 2, H / 2 + 40);
+    ctx.fillStyle = '#aaa';
+    ctx.font = '11px "Courier New", monospace';
+    ctx.fillText('Attempts: ' + dd.attempts + '/3', W / 2, H / 2 + 58);
+  }
   ctx.fillStyle = '#aaa';
   ctx.font = '14px "Courier New", monospace';
-  ctx.fillText('Click or Tap to Restart', W / 2, H / 2 + 70);
+  ctx.fillText('Click or Tap to Restart', W / 2, H / 2 + 80);
 }
 
 function drawStar(x, y, r) {
