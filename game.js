@@ -22,6 +22,66 @@ let activePower = null; // { type, timer }
 let cameraY = 0;
 let maxHeight = 0;
 
+// --- Persistent Stats & Skins ---
+const defaultStats = { totalStars: 0, totalGames: 0, totalDeaths: 0, bestScore: 0 };
+let stats = JSON.parse(localStorage.getItem('pb_stats') || JSON.stringify(defaultStats));
+let selectedSkin = parseInt(localStorage.getItem('pb_skin') || '0', 10);
+let runStars = 0;
+
+const SKINS = [
+  { name: 'Classic', hint: 'Default', unlock: () => true,
+    draw(cx, x, y, r) {
+      const g = cx.createRadialGradient(x - 2, y - 2, 1, x, y, r);
+      g.addColorStop(0, '#ffffff'); g.addColorStop(0.5, '#e94560'); g.addColorStop(1, '#c81e45');
+      cx.fillStyle = g; cx.beginPath(); cx.arc(x, y, r, 0, Math.PI * 2); cx.fill();
+    }},
+  { name: 'Neon Green', hint: 'Score 200+', unlock: () => stats.bestScore >= 200,
+    draw(cx, x, y, r) {
+      cx.shadowColor = '#00ff88'; cx.shadowBlur = 18;
+      cx.fillStyle = '#00ff88'; cx.beginPath(); cx.arc(x, y, r, 0, Math.PI * 2); cx.fill();
+      cx.shadowBlur = 0;
+    }},
+  { name: 'Gold', hint: '50 stars total', unlock: () => stats.totalStars >= 50,
+    draw(cx, x, y, r) {
+      const g = cx.createRadialGradient(x - 2, y - 2, 1, x, y, r);
+      g.addColorStop(0, '#fff8dc'); g.addColorStop(0.5, '#ffd700'); g.addColorStop(1, '#b8860b');
+      cx.fillStyle = g; cx.beginPath(); cx.arc(x, y, r, 0, Math.PI * 2); cx.fill();
+    }},
+  { name: 'Ice', hint: 'Score 500+', unlock: () => stats.bestScore >= 500,
+    draw(cx, x, y, r) {
+      const g = cx.createRadialGradient(x - 2, y - 2, 1, x, y, r);
+      g.addColorStop(0, '#ffffff'); g.addColorStop(0.4, '#88ddff'); g.addColorStop(1, '#0088cc');
+      cx.fillStyle = g; cx.beginPath(); cx.arc(x, y, r, 0, Math.PI * 2); cx.fill();
+    }},
+  { name: 'Shadow', hint: 'Play 10 games', unlock: () => stats.totalGames >= 10,
+    draw(cx, x, y, r) {
+      cx.globalAlpha = 0.4; cx.fillStyle = '#6633aa';
+      cx.beginPath(); cx.arc(x + 3, y + 3, r, 0, Math.PI * 2); cx.fill();
+      cx.globalAlpha = 1; cx.fillStyle = '#9944ee';
+      cx.beginPath(); cx.arc(x, y, r, 0, Math.PI * 2); cx.fill();
+    }},
+  { name: 'Pixel', hint: 'Score 100 no stars', unlock: () => stats.bestScore >= 100,
+    draw(cx, x, y, r) {
+      cx.fillStyle = '#e94560'; cx.fillRect(x - r, y - r, r * 2, r * 2);
+    }},
+  { name: 'Rainbow', hint: 'Score 1000+', unlock: () => stats.bestScore >= 1000,
+    draw(cx, x, y, r) {
+      const hue = (Date.now() / 10) % 360;
+      cx.fillStyle = `hsl(${hue}, 100%, 60%)`;
+      cx.beginPath(); cx.arc(x, y, r, 0, Math.PI * 2); cx.fill();
+    }},
+  { name: 'Ghost', hint: 'Die 25 times', unlock: () => stats.totalDeaths >= 25,
+    draw(cx, x, y, r) {
+      cx.globalAlpha = 0.15; cx.fillStyle = '#ffffff';
+      cx.beginPath(); cx.arc(x - 4, y, r, 0, Math.PI * 2); cx.fill();
+      cx.globalAlpha = 0.4; cx.fillStyle = '#ccccff';
+      cx.beginPath(); cx.arc(x, y, r, 0, Math.PI * 2); cx.fill();
+      cx.globalAlpha = 1;
+    }},
+];
+
+function saveStats() { localStorage.setItem('pb_stats', JSON.stringify(stats)); }
+
 const ball = { x: W / 2, y: H / 2, vx: 0, vy: 0, r: 8 };
 const keys = {};
 let touchX = null;
@@ -136,6 +196,11 @@ window.addEventListener('orientationchange', updateCachedRect);
 document.onkeydown = e => {
   keys[e.key] = true;
   if (e.key === 'm' || e.key === 'M') toggleMute();
+  // Skin selector on title screen
+  if (state === STATE.TITLE) {
+    if (e.key === 'ArrowLeft') { selectedSkin = (selectedSkin - 1 + SKINS.length) % SKINS.length; localStorage.setItem('pb_skin', selectedSkin); }
+    if (e.key === 'ArrowRight') { selectedSkin = (selectedSkin + 1) % SKINS.length; localStorage.setItem('pb_skin', selectedSkin); }
+  }
   if ((e.key === ' ' || e.key === 'Enter') && state !== STATE.PLAY) startGame();
 };
 document.onkeyup = e => { keys[e.key] = false; };
@@ -220,6 +285,9 @@ function startGame() {
   powerups = [];
   activePower = null;
   lastPowerUpHeight = 0;
+  runStars = 0;
+  stats.totalGames++;
+  saveStats();
 
   // Starting platform directly under the ball
   platforms.push({ x: W / 2 - 40, y: H - 60, w: 80, h: 10, type: 'static', dir: 0, speed: 0 });
@@ -349,6 +417,8 @@ function update() {
     if (dist < ball.r + s.r + 4 + magnetRadius) {
       s.collected = true;
       score += 25;
+      runStars++;
+      stats.totalStars++;
       sfxStar();
       spawnParticles(s.x, s.y, '#ffd700', 10);
     }
@@ -389,6 +459,9 @@ function update() {
     } else {
       state = STATE.OVER;
       sfxGameOver();
+      stats.totalDeaths++;
+      if (score > stats.bestScore) stats.bestScore = score;
+      saveStats();
       if (score > highScore) {
         highScore = score;
         localStorage.setItem('pb_hi', String(highScore));
@@ -504,17 +577,11 @@ function draw() {
   }
   ctx.globalAlpha = 1;
 
-  // Ball with glow
+  // Ball — render with selected skin
+  const skinIdx = SKINS[selectedSkin].unlock() ? selectedSkin : 0;
   ctx.shadowColor = '#e94560';
   ctx.shadowBlur = 15;
-  const bg = ctx.createRadialGradient(ball.x - 2, ball.y - 2, 1, ball.x, ball.y, ball.r);
-  bg.addColorStop(0, '#ffffff');
-  bg.addColorStop(0.5, '#e94560');
-  bg.addColorStop(1, '#c81e45');
-  ctx.fillStyle = bg;
-  ctx.beginPath();
-  ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
-  ctx.fill();
+  SKINS[skinIdx].draw(ctx, ball.x, ball.y, ball.r);
   ctx.shadowBlur = 0;
 
   ctx.restore();
@@ -568,6 +635,24 @@ function drawTitleScreen() {
   drawStar(W / 2 - 50, H / 2 - 100, 8);
   drawStar(W / 2 + 50, H / 2 - 100, 8);
   drawStar(W / 2, H / 2 - 120, 10);
+  // Skin selector
+  const skin = SKINS[selectedSkin];
+  const unlocked = skin.unlock();
+  ctx.fillStyle = unlocked ? '#fff' : '#555';
+  ctx.font = '14px "Courier New", monospace';
+  ctx.fillText('◀  ' + skin.name + '  ▶', W / 2, H / 2 + 110);
+  ctx.font = '10px "Courier New", monospace';
+  ctx.fillStyle = unlocked ? '#16c79a' : '#e94560';
+  ctx.fillText(unlocked ? '✓ Unlocked' : '🔒 ' + skin.hint, W / 2, H / 2 + 126);
+  // Preview ball
+  if (unlocked) {
+    skin.draw(ctx, W / 2, H / 2 + 150, 12);
+  } else {
+    ctx.fillStyle = '#333';
+    ctx.beginPath(); ctx.arc(W / 2, H / 2 + 150, 12, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#666'; ctx.font = '14px sans-serif';
+    ctx.fillText('?', W / 2, H / 2 + 155);
+  }
 }
 
 function drawGameOver() {
