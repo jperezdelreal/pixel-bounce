@@ -17,6 +17,8 @@ let highScore = parseInt(localStorage.getItem('pb_hi') || '0', 10);
 let stars = [];
 let platforms = [];
 let particles = [];
+let powerups = [];
+let activePower = null; // { type, timer }
 let cameraY = 0;
 let maxHeight = 0;
 
@@ -74,6 +76,12 @@ function sfxPortal() {
   playTone(500, 0.1, 'sine', 0.12);
   setTimeout(() => playTone(800, 0.1, 'sine', 0.12), 80);
   setTimeout(() => playTone(1200, 0.15, 'sine', 0.1), 160);
+}
+
+function sfxPowerUp() {
+  playTone(660, 0.08, 'square', 0.12);
+  setTimeout(() => playTone(880, 0.08, 'square', 0.12), 70);
+  setTimeout(() => playTone(1100, 0.12, 'square', 0.1), 140);
 }
 
 function startBGM() {
@@ -185,6 +193,16 @@ function spawnParticles(x, y, color, count) {
   }
 }
 
+const POWER_TYPES = ['shield', 'magnet', 'boost'];
+const POWER_COLORS = { shield: '#4488ff', magnet: '#ffdd00', boost: '#ff4444' };
+const POWER_ICONS = { shield: '🛡', magnet: '🧲', boost: '🚀' };
+let lastPowerUpHeight = 0;
+
+function makePowerUp(x, y) {
+  const type = POWER_TYPES[Math.floor(Math.random() * POWER_TYPES.length)];
+  return { x, y: y - 30, type, r: 10, pulse: Math.random() * Math.PI * 2, collected: false };
+}
+
 // --- Game Init ---
 function startGame() {
   ensureAudio();
@@ -199,6 +217,9 @@ function startGame() {
   platforms = [];
   stars = [];
   particles = [];
+  powerups = [];
+  activePower = null;
+  lastPowerUpHeight = 0;
 
   // Starting platform directly under the ball
   platforms.push({ x: W / 2 - 40, y: H - 60, w: 80, h: 10, type: 'static', dir: 0, speed: 0 });
@@ -239,24 +260,27 @@ function update() {
       if (ball.x + ball.r > p.x && ball.x - ball.r < p.x + p.w &&
           ball.y + ball.r >= p.y && ball.y + ball.r <= p.y + p.h + ball.vy + 2) {
         const baseVy = -10 - Math.min(score * 0.02, 4);
+        // Boost power-up: amplify next bounce
+        const boostMul = (activePower && activePower.type === 'boost') ? 2.5 : 1;
+        if (boostMul > 1) activePower = null;
         if (p.type === 'bouncy') {
-          ball.vy = baseVy * 2;
+          ball.vy = baseVy * 2 * boostMul;
           sfxBouncy();
           spawnParticles(ball.x, p.y, '#00ff88', 8);
         } else if (p.type === 'breakable') {
-          ball.vy = baseVy;
+          ball.vy = baseVy * boostMul;
           p.broken = true;
           sfxBreakable();
           spawnParticles(ball.x, p.y, '#ff8c00', 12);
         } else if (p.type === 'portal') {
           const highest = Math.min(...platforms.filter(q => !q.broken && q !== p).map(q => q.y));
           ball.y = highest - ball.r - 20;
-          ball.vy = baseVy;
+          ball.vy = baseVy * boostMul;
           sfxPortal();
           spawnParticles(ball.x, p.y, '#b44dff', 15);
           spawnParticles(ball.x, ball.y, '#b44dff', 10);
         } else {
-          ball.vy = baseVy;
+          ball.vy = baseVy * boostMul;
           sfxBounce(ball.vy);
           spawnParticles(ball.x, p.y, '#e94560', 5);
         }
@@ -296,22 +320,53 @@ function update() {
     const newP = makePlatform(highestY - gap);
     platforms.push(newP);
     if (Math.random() < 0.4) stars.push(makeStar(newP.y - 60, newP.y - 10));
+    // Spawn power-up every ~200 height units
+    const currentHeight = -(newP.y - H);
+    if (currentHeight - lastPowerUpHeight >= 200) {
+      powerups.push(makePowerUp(newP.x + newP.w / 2, newP.y));
+      lastPowerUpHeight = currentHeight;
+    }
     highestY = newP.y;
   }
 
   // Cleanup off-screen + broken platforms
   platforms = platforms.filter(p => !p.broken && p.y < cameraY + H + 50);
   stars = stars.filter(s => !s.collected && s.y < cameraY + H + 50);
+  powerups = powerups.filter(pu => !pu.collected && pu.y < cameraY + H + 50);
 
-  // Star collection
+  // Magnet timer countdown
+  if (activePower && activePower.type === 'magnet') {
+    activePower.timer--;
+    if (activePower.timer <= 0) activePower = null;
+  }
+
+  // Star collection (magnet expands radius)
+  const magnetRadius = (activePower && activePower.type === 'magnet') ? 80 : 0;
   for (const s of stars) {
     if (s.collected) continue;
     const dx = ball.x - s.x, dy = ball.y - s.y;
-    if (Math.sqrt(dx * dx + dy * dy) < ball.r + s.r + 4) {
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < ball.r + s.r + 4 + magnetRadius) {
       s.collected = true;
       score += 25;
       sfxStar();
       spawnParticles(s.x, s.y, '#ffd700', 10);
+    }
+  }
+
+  // Power-up collection
+  for (const pu of powerups) {
+    if (pu.collected) continue;
+    const dx = ball.x - pu.x, dy = ball.y - pu.y;
+    if (Math.sqrt(dx * dx + dy * dy) < ball.r + pu.r) {
+      pu.collected = true;
+      if (pu.type === 'magnet') {
+        activePower = { type: 'magnet', timer: 300 }; // ~5 seconds at 60fps
+      } else {
+        activePower = { type: pu.type, timer: -1 }; // single-use
+      }
+      sfxPowerUp();
+      spawnParticles(pu.x, pu.y, POWER_COLORS[pu.type], 12);
     }
   }
 
@@ -322,13 +377,22 @@ function update() {
     if (p.life <= 0) particles.splice(i, 1);
   }
 
-  // Game over
+  // Game over (shield intercepts once)
   if (ball.y - cameraY > H + 50) {
-    state = STATE.OVER;
-    sfxGameOver();
-    if (score > highScore) {
-      highScore = score;
-      localStorage.setItem('pb_hi', String(highScore));
+    if (activePower && activePower.type === 'shield') {
+      // Shield saves: bounce back up
+      ball.vy = -12;
+      ball.y = cameraY + H - 20;
+      activePower = null;
+      playTone(700, 0.2, 'sine', 0.15);
+      spawnParticles(ball.x, ball.y, '#4488ff', 20);
+    } else {
+      state = STATE.OVER;
+      sfxGameOver();
+      if (score > highScore) {
+        highScore = score;
+        localStorage.setItem('pb_hi', String(highScore));
+      }
     }
   }
 }
@@ -410,6 +474,26 @@ function draw() {
     drawStar(s.x, s.y, s.r * (1 + Math.sin(s.pulse) * 0.2));
   }
 
+  // Power-ups
+  for (const pu of powerups) {
+    if (pu.collected) continue;
+    pu.pulse += 0.05;
+    const bobY = pu.y + Math.sin(pu.pulse) * 4;
+    const color = POWER_COLORS[pu.type];
+    // Glow
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(pu.x, bobY, pu.r, 0, Math.PI * 2);
+    ctx.fill();
+    // Icon
+    ctx.shadowBlur = 0;
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(POWER_ICONS[pu.type], pu.x, bobY + 4);
+  }
+
   // Particles
   for (const p of particles) {
     ctx.globalAlpha = p.life / 40;
@@ -449,6 +533,19 @@ function draw() {
   ctx.font = '12px "Courier New", monospace';
   ctx.fillStyle = muted ? '#e94560' : '#555';
   ctx.fillText(muted ? '🔇 M' : '🔊 M', W / 2, 18);
+  // Active power-up indicator
+  if (activePower) {
+    ctx.textAlign = 'left';
+    ctx.font = '14px sans-serif';
+    ctx.fillStyle = POWER_COLORS[activePower.type];
+    const label = POWER_ICONS[activePower.type] + ' ' + activePower.type.toUpperCase();
+    ctx.fillText(label, 12, 48);
+    if (activePower.type === 'magnet') {
+      // Duration bar
+      const barW = 60 * (activePower.timer / 300);
+      ctx.fillRect(12, 52, barW, 3);
+    }
+  }
 
   if (state === STATE.TITLE) drawTitleScreen();
   if (state === STATE.OVER) drawGameOver();
