@@ -82,6 +82,39 @@ const SKINS = [
 
 function saveStats() { localStorage.setItem('pb_stats', JSON.stringify(stats)); }
 
+// --- Achievements ---
+let unlockedAchievements = JSON.parse(localStorage.getItem('pb_achievements') || '[]');
+let runBounces = 0;
+let runStartTime = 0;
+let achievementToast = null; // { text, timer }
+let showAchievementOverlay = false;
+
+const ACHIEVEMENTS = [
+  { id: 'first_steps', name: 'First Steps', icon: '🐣', check: () => score >= 50 },
+  { id: 'sky_climber', name: 'Sky Climber', icon: '⛰️', check: () => score >= 500 },
+  { id: 'star_collector', name: 'Star Collector', icon: '⭐', check: () => runStars >= 10 },
+  { id: 'star_hoarder', name: 'Star Hoarder', icon: '🌟', check: () => stats.totalStars >= 50 },
+  { id: 'bouncy_castle', name: 'Bouncy Castle', icon: '🏰', check: () => runBounces >= 100 },
+  { id: 'speed_demon', name: 'Speed Demon', icon: '⚡', check: () => score >= 200 && (Date.now() - runStartTime) < 60000 },
+  { id: 'untouchable', name: 'Untouchable', icon: '🛡️', check: () => score >= 300 && runStars === 0 },
+  { id: 'marathon', name: 'Marathon', icon: '🏃', check: () => stats.totalGames >= 25 },
+  { id: 'legend', name: 'Legend', icon: '👑', check: () => score >= 1000 },
+  { id: 'perfectionist', name: 'Perfectionist', icon: '💎',
+    check: () => ACHIEVEMENTS.filter(a => a.id !== 'perfectionist').every(a => unlockedAchievements.includes(a.id)) },
+];
+
+function checkAchievements() {
+  for (const a of ACHIEVEMENTS) {
+    if (!unlockedAchievements.includes(a.id) && a.check()) {
+      unlockedAchievements.push(a.id);
+      achievementToast = { text: a.icon + ' ' + a.name + ' unlocked!', timer: 180 };
+      playTone(1000, 0.1, 'sine', 0.15);
+      setTimeout(() => playTone(1200, 0.15, 'sine', 0.12), 100);
+    }
+  }
+  localStorage.setItem('pb_achievements', JSON.stringify(unlockedAchievements));
+}
+
 const ball = { x: W / 2, y: H / 2, vx: 0, vy: 0, r: 8 };
 const keys = {};
 let touchX = null;
@@ -196,6 +229,7 @@ window.addEventListener('orientationchange', updateCachedRect);
 document.onkeydown = e => {
   keys[e.key] = true;
   if (e.key === 'm' || e.key === 'M') toggleMute();
+  if ((e.key === 'a' || e.key === 'A') && state !== STATE.PLAY) showAchievementOverlay = !showAchievementOverlay;
   // Skin selector on title screen
   if (state === STATE.TITLE) {
     if (e.key === 'ArrowLeft') { selectedSkin = (selectedSkin - 1 + SKINS.length) % SKINS.length; localStorage.setItem('pb_skin', selectedSkin); }
@@ -286,6 +320,8 @@ function startGame() {
   activePower = null;
   lastPowerUpHeight = 0;
   runStars = 0;
+  runBounces = 0;
+  runStartTime = Date.now();
   stats.totalGames++;
   saveStats();
 
@@ -328,6 +364,7 @@ function update() {
       if (ball.x + ball.r > p.x && ball.x - ball.r < p.x + p.w &&
           ball.y + ball.r >= p.y && ball.y + ball.r <= p.y + p.h + ball.vy + 2) {
         const baseVy = -10 - Math.min(score * 0.02, 4);
+        runBounces++;
         // Boost power-up: amplify next bounce
         const boostMul = (activePower && activePower.type === 'boost') ? 2.5 : 1;
         if (boostMul > 1) activePower = null;
@@ -462,6 +499,7 @@ function update() {
       stats.totalDeaths++;
       if (score > stats.bestScore) stats.bestScore = score;
       saveStats();
+      checkAchievements();
       if (score > highScore) {
         highScore = score;
         localStorage.setItem('pb_hi', String(highScore));
@@ -616,6 +654,56 @@ function draw() {
 
   if (state === STATE.TITLE) drawTitleScreen();
   if (state === STATE.OVER) drawGameOver();
+
+  // Achievement toast
+  if (achievementToast && achievementToast.timer > 0) {
+    achievementToast.timer--;
+    const alpha = Math.min(achievementToast.timer / 30, 1);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#1a1a2e';
+    roundRect(ctx, W / 2 - 120, H - 60, 240, 35, 6);
+    ctx.fill();
+    ctx.strokeStyle = '#ffd700';
+    ctx.lineWidth = 1;
+    roundRect(ctx, W / 2 - 120, H - 60, 240, 35, 6);
+    ctx.stroke();
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 13px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(achievementToast.text, W / 2, H - 38);
+    ctx.globalAlpha = 1;
+  }
+
+  // Achievement overlay
+  if (showAchievementOverlay) {
+    ctx.fillStyle = 'rgba(10,10,30,0.9)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 22px "Courier New", monospace';
+    ctx.fillText('ACHIEVEMENTS', W / 2, 40);
+    ctx.font = '10px "Courier New", monospace';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('Press A to close', W / 2, 58);
+    for (let i = 0; i < ACHIEVEMENTS.length; i++) {
+      const a = ACHIEVEMENTS[i];
+      const unlocked = unlockedAchievements.includes(a.id);
+      const y = 85 + i * 50;
+      ctx.textAlign = 'left';
+      ctx.font = '18px sans-serif';
+      ctx.fillText(unlocked ? a.icon : '🔒', 30, y + 4);
+      ctx.font = 'bold 14px "Courier New", monospace';
+      ctx.fillStyle = unlocked ? '#fff' : '#555';
+      ctx.fillText(a.name, 60, y);
+      ctx.font = '11px "Courier New", monospace';
+      ctx.fillStyle = unlocked ? '#16c79a' : '#444';
+      ctx.fillText(unlocked ? '✓ Unlocked' : '???', 60, y + 16);
+    }
+    ctx.fillStyle = '#aaa';
+    ctx.textAlign = 'center';
+    ctx.font = '12px "Courier New", monospace';
+    ctx.fillText(unlockedAchievements.length + '/' + ACHIEVEMENTS.length, W / 2, H - 20);
+  }
 }
 
 function drawTitleScreen() {
