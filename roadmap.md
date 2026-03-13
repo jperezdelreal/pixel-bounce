@@ -127,22 +127,22 @@ Transform Pixel Bounce from a solo arcade game into a multiplayer-ready platform
 
 ## Development Phases
 
-**Phase 1 (v1.x Polish)** — *Current*
-- Address mobile touch lag
-- Fix platform generation algorithm
-- Add audio (SFX + BGM)
+**Phase 1 (v1.x Polish)** — *Complete ✅*
+- [x] Address mobile touch lag
+- [x] Fix platform generation algorithm
+- [x] Add audio (SFX + BGM)
 
-**Phase 2 (Social Features)** — *~3-4 weeks*
-- Implement Multiplayer Race Mode (#1)
-- Achievement System (#3)
+**Phase 2 (Engagement & Retention)** — *Current*
+- [ ] Achievement system — 10 unlockable badges (height, stars, streaks)
+- [ ] Daily challenge mode — seeded modifier runs with leaderboard
+- [ ] Custom ball skins — 8 skins unlocked via achievements + star currency
+- [ ] Power-ups — Shield, Magnet, Boost with spawn rate 1 per 200 height
+- [ ] Special platforms — Bouncy (2×), Breakable, Portal
 
-**Phase 3 (Creative Tools)** — *~3-4 weeks*
-- Build Level Editor (#2)
+**Phase 3 (Social & Creative)** — *Next*
+- Build Level Editor (#2 from v2.0 roadmap)
+- Multiplayer Race Mode (#1 from v2.0 roadmap)
 - Community gallery backend
-
-**Phase 4 (Monetization/Engagement)** — *~2 weeks*
-- Custom Skins + Shop (#4)
-- Power-Ups (#5)
 
 ---
 
@@ -173,5 +173,5 @@ Transform Pixel Bounce from a solo arcade game into a multiplayer-ready platform
 
 ---
 
-**Last Updated:** 2025-03-17  
+**Last Updated:** 2026-03-13  
 **Maintained by:** Syntax Sorcery (Oracle)
