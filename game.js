@@ -802,21 +802,21 @@ function sfxPowerUp() {
 function startBGM() {
   if (!audioCtx || muted) return;
   bgmGain = audioCtx.createGain();
-  bgmGain.gain.setValueAtTime(0.04, audioCtx.currentTime);
+  bgmGain.gain.setValueAtTime(0.06, audioCtx.currentTime);
   bgmGain.connect(audioCtx.destination);
 
-  // Simple 8-bit arpeggio loop
-  const notes = [262, 330, 392, 523, 392, 330, 262, 196];
-  const noteLen = 0.18;
+  // Ambient chill lo-fi loop - pentatonic scale, lower octave, slower tempo
+  const notes = [131, 147, 165, 196, 220, 196, 165, 147]; // C3 pentatonic, calmer progression
+  const noteLen = 0.4; // Slower: 400ms per note (was 180ms)
   function playLoop() {
     if (!audioCtx || muted) return;
     const now = audioCtx.currentTime;
     notes.forEach((freq, i) => {
       const osc = audioCtx.createOscillator();
       const g = audioCtx.createGain();
-      osc.type = 'square';
+      osc.type = 'sine'; // Softer waveform (was square)
       osc.frequency.setValueAtTime(freq, now + i * noteLen);
-      g.gain.setValueAtTime(0.04, now + i * noteLen);
+      g.gain.setValueAtTime(0.06, now + i * noteLen);
       g.gain.exponentialRampToValueAtTime(0.001, now + i * noteLen + noteLen * 0.9);
       osc.connect(g);
       g.connect(audioCtx.destination);
@@ -854,20 +854,17 @@ document.onkeydown = e => {
   
   // Pause toggle during gameplay (ESC or P key)
   if ((e.key === 'Escape' || e.key === 'p' || e.key === 'P') && isPlaying() && !isPreviewMode) {
+    e.preventDefault();
     pausedFromState = state;
     state = STATE.PAUSED;
     return;
   }
-  if (e.key === 'Escape' && state === STATE.PAUSED) {
-    state = pausedFromState;
-    pausedFromState = null;
-    return;
-  }
   
-  // Pause menu actions
+  // Pause menu actions - handle resume/mute/quit
   if (state === STATE.PAUSED) {
-    if (e.key === 'p' || e.key === 'P') {
-      // Resume
+    e.preventDefault();
+    if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') {
+      // Resume game
       state = pausedFromState;
       pausedFromState = null;
       return;
