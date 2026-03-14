@@ -10,7 +10,7 @@ const H = 600;
 canvas.width = W;
 canvas.height = H;
 
-const STATE = { TITLE: 0, PLAY: 1, OVER: 2, DAILY: 3, EDITOR: 4 };
+const STATE = { TITLE: 0, PLAY: 1, OVER: 2, DAILY: 3, EDITOR: 4, GALLERY: 5 };
 let state = STATE.TITLE;
 let score = 0;
 let highScore = parseInt(localStorage.getItem('pb_hi') || '0', 10);
@@ -36,6 +36,16 @@ let importInput = '';
 let showMetadataModal = false;
 let metadataInputs = { name: '', description: '', difficulty: 'Medium', tags: '' };
 let metadataFocusField = 'name'; // name, description, tags
+
+// --- Community Gallery State ---
+let galleryLevels = [];
+let gallerySort = 'recent'; // recent, popular, top-rated
+let galleryScroll = 0;
+let selectedGalleryLevel = null;
+let showRatingModal = false;
+let pendingRating = 0;
+let communityLevelId = null;
+let isPlayingCommunityLevel = false;
 
 // --- Persistent Stats & Skins ---
 const defaultStats = { totalStars: 0, totalGames: 0, totalDeaths: 0, bestScore: 0 };
@@ -148,6 +158,234 @@ function seededRandom(seed) {
   let s = seed;
   return function() { s = (s * 16807 + 0) % 2147483647; return (s - 1) / 2147483646; };
 }
+
+// --- LevelAPI: Backend Abstraction Layer ---
+const LevelAPI = {
+  save(level) {
+    const levels = this._getLevels();
+    const id = 'lvl_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    const galleryLevel = {
+      id,
+      ...level,
+      plays: 0,
+      rating: 0,
+      ratingCount: 0,
+      created: new Date().toISOString()
+    };
+    levels.push(galleryLevel);
+    localStorage.setItem('pixelbounce_gallery', JSON.stringify(levels));
+    return id;
+  },
+  
+  list(sort = 'recent') {
+    const levels = this._getLevels();
+    switch (sort) {
+      case 'popular':
+        return levels.sort((a, b) => b.plays - a.plays);
+      case 'top-rated':
+        return levels.sort((a, b) => b.rating - a.rating);
+      case 'recent':
+      default:
+        return levels.sort((a, b) => new Date(b.created) - new Date(a.created));
+    }
+  },
+  
+  get(id) {
+    const levels = this._getLevels();
+    return levels.find(l => l.id === id);
+  },
+  
+  rate(id, stars) {
+    const levels = this._getLevels();
+    const level = levels.find(l => l.id === id);
+    if (level) {
+      const ratedLevels = this._getRatedLevels();
+      
+      if (ratedLevels[id]) {
+        // Already rated - update existing rating
+        const oldRating = ratedLevels[id];
+        const totalRating = level.rating * level.ratingCount - oldRating + stars;
+        level.rating = totalRating / level.ratingCount;
+      } else {
+        // First time rating
+        const totalRating = level.rating * level.ratingCount + stars;
+        level.ratingCount++;
+        level.rating = totalRating / level.ratingCount;
+      }
+      
+      ratedLevels[id] = stars;
+      localStorage.setItem('pixelbounce_rated', JSON.stringify(ratedLevels));
+      localStorage.setItem('pixelbounce_gallery', JSON.stringify(levels));
+    }
+  },
+  
+  hasRated(id) {
+    const ratedLevels = this._getRatedLevels();
+    return !!ratedLevels[id];
+  },
+  
+  _getRatedLevels() {
+    try {
+      const data = localStorage.getItem('pixelbounce_rated');
+      return data ? JSON.parse(data) : {};
+    } catch (e) {
+      console.warn('Failed to parse rated levels data:', e);
+      return {};
+    }
+  },
+  
+  incrementPlays(id) {
+    const levels = this._getLevels();
+    const level = levels.find(l => l.id === id);
+    if (level) {
+      level.plays++;
+      localStorage.setItem('pixelbounce_gallery', JSON.stringify(levels));
+    }
+  },
+  
+  _getLevels() {
+    try {
+      const data = localStorage.getItem('pixelbounce_gallery');
+      return data ? JSON.parse(data) : [];
+    } catch (e) {
+      console.warn('Failed to parse gallery data, returning empty array:', e);
+      return [];
+    }
+  },
+  
+  _initDemoLevels() {
+    if (this._getLevels().length > 0) return;
+    
+    const demos = [
+      {
+        version: 1,
+        platforms: [
+          { x: 160, y: 540, w: 80, h: 10, type: 'static', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 80, y: 470, w: 80, h: 10, type: 'bouncy', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 240, y: 400, w: 80, h: 10, type: 'bouncy', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 160, y: 330, w: 80, h: 10, type: 'portal', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 80, y: 260, w: 80, h: 10, type: 'moving', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 240, y: 190, w: 80, h: 10, type: 'static', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 160, y: 120, w: 80, h: 10, type: 'breakable', dir: 1, speed: 1.5, broken: false, pulse: 0 }
+        ],
+        stars: [
+          { x: 120, y: 450, r: 5, pulse: 0, collected: false },
+          { x: 280, y: 380, r: 5, pulse: 0, collected: false },
+          { x: 120, y: 240, r: 5, pulse: 0, collected: false }
+        ],
+        spawn: { x: 200, y: 560 },
+        metadata: { name: 'Skyward Bounce', description: 'Master all platform types in this vertical challenge!', difficulty: 'Medium', tags: ['tutorial', 'variety'], author: 'Proto Man', created: new Date().toISOString() }
+      },
+      {
+        version: 1,
+        platforms: [
+          { x: 160, y: 540, w: 80, h: 10, type: 'static', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 40, y: 480, w: 60, h: 10, type: 'breakable', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 140, y: 480, w: 60, h: 10, type: 'breakable', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 240, y: 480, w: 60, h: 10, type: 'breakable', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 160, y: 420, w: 80, h: 10, type: 'static', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 80, y: 360, w: 80, h: 10, type: 'bouncy', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 240, y: 300, w: 80, h: 10, type: 'bouncy', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 160, y: 240, w: 80, h: 10, type: 'portal', dir: 1, speed: 1.5, broken: false, pulse: 0 }
+        ],
+        stars: [
+          { x: 100, y: 500, r: 5, pulse: 0, collected: false },
+          { x: 200, y: 500, r: 5, pulse: 0, collected: false },
+          { x: 280, y: 500, r: 5, pulse: 0, collected: false },
+          { x: 120, y: 340, r: 5, pulse: 0, collected: false },
+          { x: 280, y: 280, r: 5, pulse: 0, collected: false }
+        ],
+        spawn: { x: 200, y: 560 },
+        metadata: { name: 'Glass Gauntlet', description: 'Careful! These platforms break. Collect all stars on your way up.', difficulty: 'Hard', tags: ['precision', 'stars'], author: 'Cut Man', created: new Date().toISOString() }
+      },
+      {
+        version: 1,
+        platforms: [
+          { x: 160, y: 540, w: 80, h: 10, type: 'static', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 60, y: 470, w: 70, h: 10, type: 'moving', dir: 1, speed: 2, broken: false, pulse: 0 },
+          { x: 270, y: 410, w: 70, h: 10, type: 'moving', dir: -1, speed: 2, broken: false, pulse: 0 },
+          { x: 60, y: 350, w: 70, h: 10, type: 'moving', dir: 1, speed: 2, broken: false, pulse: 0 },
+          { x: 270, y: 290, w: 70, h: 10, type: 'moving', dir: -1, speed: 2, broken: false, pulse: 0 },
+          { x: 160, y: 230, w: 80, h: 10, type: 'bouncy', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 200, y: 160, w: 80, h: 10, type: 'portal', dir: 1, speed: 1.5, broken: false, pulse: 0 }
+        ],
+        stars: [
+          { x: 95, y: 450, r: 5, pulse: 0, collected: false },
+          { x: 305, y: 390, r: 5, pulse: 0, collected: false },
+          { x: 95, y: 330, r: 5, pulse: 0, collected: false },
+          { x: 305, y: 270, r: 5, pulse: 0, collected: false }
+        ],
+        spawn: { x: 200, y: 560 },
+        metadata: { name: 'Rhythm Rush', description: 'Time your jumps with moving platforms. Feel the rhythm!', difficulty: 'Hard', tags: ['moving', 'timing'], author: 'Guts Man', created: new Date().toISOString() }
+      },
+      {
+        version: 1,
+        platforms: [
+          { x: 160, y: 540, w: 80, h: 10, type: 'static', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 100, y: 480, w: 90, h: 10, type: 'bouncy', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 210, y: 480, w: 90, h: 10, type: 'bouncy', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 160, y: 420, w: 80, h: 10, type: 'bouncy', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 100, y: 360, w: 90, h: 10, type: 'bouncy', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 210, y: 360, w: 90, h: 10, type: 'bouncy', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 160, y: 300, w: 80, h: 10, type: 'bouncy', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 160, y: 240, w: 100, h: 10, type: 'bouncy', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 160, y: 180, w: 120, h: 10, type: 'bouncy', dir: 1, speed: 1.5, broken: false, pulse: 0 }
+        ],
+        stars: [
+          { x: 145, y: 500, r: 5, pulse: 0, collected: false },
+          { x: 255, y: 500, r: 5, pulse: 0, collected: false },
+          { x: 200, y: 440, r: 5, pulse: 0, collected: false },
+          { x: 145, y: 380, r: 5, pulse: 0, collected: false },
+          { x: 255, y: 380, r: 5, pulse: 0, collected: false },
+          { x: 200, y: 320, r: 5, pulse: 0, collected: false },
+          { x: 200, y: 260, r: 5, pulse: 0, collected: false },
+          { x: 200, y: 200, r: 5, pulse: 0, collected: false }
+        ],
+        spawn: { x: 200, y: 560 },
+        metadata: { name: 'Bounce Haven', description: 'Non-stop bouncing action. Go for the high score!', difficulty: 'Easy', tags: ['bouncy', 'fun'], author: 'Mega Man', created: new Date().toISOString() }
+      },
+      {
+        version: 1,
+        platforms: [
+          { x: 160, y: 540, w: 80, h: 10, type: 'static', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 40, y: 470, w: 60, h: 10, type: 'portal', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 300, y: 410, w: 60, h: 10, type: 'static', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 100, y: 350, w: 60, h: 10, type: 'portal', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 280, y: 290, w: 60, h: 10, type: 'static', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 60, y: 230, w: 60, h: 10, type: 'portal', dir: 1, speed: 1.5, broken: false, pulse: 0 },
+          { x: 180, y: 170, w: 60, h: 10, type: 'static', dir: 1, speed: 1.5, broken: false, pulse: 0 }
+        ],
+        stars: [
+          { x: 70, y: 450, r: 5, pulse: 0, collected: false },
+          { x: 330, y: 390, r: 5, pulse: 0, collected: false },
+          { x: 130, y: 330, r: 5, pulse: 0, collected: false },
+          { x: 310, y: 270, r: 5, pulse: 0, collected: false },
+          { x: 90, y: 210, r: 5, pulse: 0, collected: false }
+        ],
+        spawn: { x: 200, y: 560 },
+        metadata: { name: 'Portal Maze', description: 'Use portal platforms to teleport your way to the top!', difficulty: 'Expert', tags: ['portal', 'challenge'], author: 'Proto Man', created: new Date().toISOString() }
+      }
+    ];
+    
+    demos.forEach(demo => {
+      const id = 'demo_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+      const galleryLevel = {
+        id,
+        ...demo,
+        plays: Math.floor(Math.random() * 50) + 10,
+        rating: 3.5 + Math.random() * 1.5,
+        ratingCount: Math.floor(Math.random() * 20) + 5,
+        created: new Date(Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000).toISOString()
+      };
+      this._getLevels().push(galleryLevel);
+    });
+    
+    localStorage.setItem('pixelbounce_gallery', JSON.stringify(this._getLevels()));
+  }
+};
+
+// Initialize demo levels on first visit
+LevelAPI._initDemoLevels();
 
 function getDailyKey() { return new Date().toISOString().slice(0, 10); }
 
@@ -297,6 +535,7 @@ document.onkeydown = e => {
   }
   if (e.key === 'd' && state === STATE.TITLE && !showAchievementOverlay) startGame(true);
   if (e.key === 'e' && state === STATE.TITLE && !showAchievementOverlay) startEditor();
+  if (e.key === 'c' && state === STATE.TITLE && !showAchievementOverlay) startGallery();
   if ((e.key === ' ' || e.key === 'Enter') && !isPlaying()) startGame();
   // Editor controls
   if (state === STATE.EDITOR) {
@@ -353,6 +592,7 @@ document.onkeydown = e => {
     if (e.key === 'i' || e.key === 'I') openImportModal();
     if (e.key === 'm' || e.key === 'M') openMetadataModal();
     if (e.key === 'f' || e.key === 'F') handleFileImport();
+    if (e.key === 'u' || e.key === 'U') uploadToGallery();
     // Tool selection with number keys
     if (e.key >= '1' && e.key <= '7') {
       const toolIdx = parseInt(e.key) - 1;
@@ -363,6 +603,54 @@ document.onkeydown = e => {
   if (state === STATE.PLAY && isPreviewMode && e.key === 'Escape') {
     isPreviewMode = false;
     state = STATE.EDITOR;
+  }
+  // Gallery controls
+  if (state === STATE.GALLERY) {
+    if (showRatingModal) {
+      if (e.key >= '1' && e.key <= '5') {
+        pendingRating = parseInt(e.key);
+      }
+      if (e.key === 'Enter' && pendingRating > 0) {
+        LevelAPI.rate(communityLevelId, pendingRating);
+        showRatingModal = false;
+        pendingRating = 0;
+        communityLevelId = null;
+        isPlayingCommunityLevel = false;
+      }
+      if (e.key === 'Escape') {
+        showRatingModal = false;
+        pendingRating = 0;
+        communityLevelId = null;
+        isPlayingCommunityLevel = false;
+      }
+      return;
+    }
+    if (e.key === 'Escape') {
+      state = STATE.TITLE;
+      selectedGalleryLevel = null;
+    }
+    if (e.key === 'ArrowUp') galleryScroll = Math.max(0, galleryScroll - 1);
+    if (e.key === 'ArrowDown') galleryScroll = Math.min(galleryLevels.length - 1, galleryScroll + 1);
+    if (e.key === '1') { gallerySort = 'recent'; galleryLevels = LevelAPI.list(gallerySort); galleryScroll = 0; }
+    if (e.key === '2') { gallerySort = 'popular'; galleryLevels = LevelAPI.list(gallerySort); galleryScroll = 0; }
+    if (e.key === '3') { gallerySort = 'top-rated'; galleryLevels = LevelAPI.list(gallerySort); galleryScroll = 0; }
+    if (e.key === 'Enter' || e.key === ' ') {
+      if (galleryLevels[galleryScroll]) {
+        playCommunityLevel(galleryLevels[galleryScroll]);
+      }
+    }
+  }
+  // Community level game over -> rating
+  if (state === STATE.OVER && communityLevelId && e.key === 'r') {
+    if (LevelAPI.hasRated(communityLevelId)) {
+      // Already rated - just go back to gallery
+      state = STATE.GALLERY;
+      isPlayingCommunityLevel = false;
+      communityLevelId = null;
+    } else {
+      showRatingModal = true;
+      pendingRating = 0;
+    }
   }
 };
 document.onkeyup = e => { keys[e.key] = false; };
@@ -378,6 +666,15 @@ document.addEventListener('paste', (e) => {
 canvas.onclick = (e) => {
   if (state === STATE.EDITOR) {
     handleEditorClick(e);
+  } else if (state === STATE.GALLERY) {
+    handleGalleryClick(e);
+  } else if (state === STATE.OVER && communityLevelId) {
+    // Return to gallery from community level
+    if (!showRatingModal) {
+      communityLevelId = null;
+      isPlayingCommunityLevel = false;
+      state = STATE.GALLERY;
+    }
   } else if (!isPlaying()) {
     startGame();
   }
@@ -385,6 +682,15 @@ canvas.onclick = (e) => {
 
 canvas.addEventListener('touchstart', e => {
   e.preventDefault();
+  if (state === STATE.OVER && communityLevelId) {
+    // Return to gallery from community level
+    if (!showRatingModal) {
+      communityLevelId = null;
+      isPlayingCommunityLevel = false;
+      state = STATE.GALLERY;
+    }
+    return;
+  }
   if (!isPlaying()) { startGame(); return; }
   touchX = (e.touches[0].clientX - cachedRect.left) / cachedRect.width * W;
 }, { passive: false });
@@ -750,6 +1056,173 @@ function showToast(text, type = 'success') {
   editorToast = { text, timer: 120, type }; // 2 seconds at 60fps
 }
 
+// --- Gallery Functions ---
+function startGallery() {
+  ensureAudio();
+  state = STATE.GALLERY;
+  gallerySort = 'recent';
+  galleryLevels = LevelAPI.list(gallerySort);
+  galleryScroll = 0;
+  selectedGalleryLevel = null;
+}
+
+function handleGalleryClick(e) {
+  const rect = canvas.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / rect.width) * W;
+  const y = ((e.clientY - rect.top) / rect.height) * H;
+  
+  // Sort buttons
+  const sortBtns = [
+    { x: 20, y: 70, w: 110, sort: 'recent' },
+    { x: 140, y: 70, w: 110, sort: 'popular' },
+    { x: 260, y: 70, w: 110, sort: 'top-rated' }
+  ];
+  for (const btn of sortBtns) {
+    if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + 25) {
+      gallerySort = btn.sort;
+      galleryLevels = LevelAPI.list(gallerySort);
+      galleryScroll = 0;
+      return;
+    }
+  }
+  
+  // Level cards (clickable area)
+  const startY = 110;
+  const cardH = 90;
+  const visibleCards = Math.min(5, galleryLevels.length);
+  for (let i = 0; i < visibleCards; i++) {
+    const idx = galleryScroll + i;
+    if (idx >= galleryLevels.length) break;
+    const cardY = startY + i * (cardH + 10);
+    if (x >= 10 && x <= W - 10 && y >= cardY && y <= cardY + cardH) {
+      playCommunityLevel(galleryLevels[idx]);
+      return;
+    }
+  }
+}
+
+function playCommunityLevel(level) {
+  ensureAudio();
+  isPreviewMode = false;
+  isDailyMode = false;
+  isPlayingCommunityLevel = true;
+  communityLevelId = level.id;
+  state = STATE.PLAY;
+  score = 0;
+  cameraY = 0;
+  maxHeight = 0;
+  ball.x = level.spawn.x;
+  ball.y = level.spawn.y;
+  ball.vx = 0;
+  ball.vy = -8;
+  ball.r = 8;
+  platforms = JSON.parse(JSON.stringify(level.platforms));
+  stars = JSON.parse(JSON.stringify(level.stars));
+  particles = [];
+  powerups = [];
+  activePower = null;
+  runStars = 0;
+  runBounces = 0;
+  runStartTime = Date.now();
+  LevelAPI.incrementPlays(level.id);
+}
+
+function uploadToGallery() {
+  if (!editorLevel.metadata.name || editorLevel.metadata.name.trim() === '' || editorLevel.metadata.name === 'Untitled Level') {
+    showToast('Set a unique level name! [M]', 'error');
+    return;
+  }
+  if (editorLevel.platforms.length === 0) {
+    showToast('Add platforms first!', 'error');
+    return;
+  }
+  
+  const levelData = {
+    version: 1,
+    platforms: editorLevel.platforms,
+    stars: editorLevel.stars,
+    spawn: editorLevel.spawn,
+    metadata: {
+      name: editorLevel.metadata.name,
+      description: editorLevel.metadata.description,
+      difficulty: editorLevel.metadata.difficulty,
+      tags: editorLevel.metadata.tags,
+      author: editorLevel.metadata.author,
+      created: editorLevel.metadata.created
+    }
+  };
+  
+  const id = LevelAPI.save(levelData);
+  showToast('Level uploaded to gallery!', 'success');
+}
+
+function renderLevelThumbnail(level) {
+  const thumbW = 60;
+  const thumbH = 80;
+  const offCanvas = document.createElement('canvas');
+  offCanvas.width = thumbW;
+  offCanvas.height = thumbH;
+  const offCtx = offCanvas.getContext('2d');
+  
+  // Background
+  offCtx.fillStyle = '#0f3460';
+  offCtx.fillRect(0, 0, thumbW, thumbH);
+  
+  // Guard against empty levels
+  if (!level.platforms || level.platforms.length === 0) {
+    offCtx.fillStyle = '#555';
+    offCtx.font = '10px "Courier New", monospace';
+    offCtx.textAlign = 'center';
+    offCtx.fillText('No', thumbW / 2, thumbH / 2 - 5);
+    offCtx.fillText('Preview', thumbW / 2, thumbH / 2 + 8);
+    return offCanvas;
+  }
+  
+  // Find bounds
+  const allY = level.platforms.map(p => p.y).concat((level.stars || []).map(s => s.y));
+  const minY = Math.min(...allY, level.spawn.y);
+  const maxY = Math.max(...allY, level.spawn.y);
+  const rangeY = maxY - minY || 100;
+  const scale = Math.min(thumbW / W, thumbH / rangeY) * 0.8;
+  
+  offCtx.save();
+  offCtx.translate(thumbW / 2, thumbH / 2);
+  offCtx.scale(scale, scale);
+  offCtx.translate(-W / 2, -(minY + rangeY / 2));
+  
+  // Platforms
+  for (const p of level.platforms) {
+    const colors = {
+      bouncy: '#00ff88',
+      breakable: '#ff8c00',
+      portal: '#b44dff',
+      moving: '#16c79a',
+      static: '#e94560'
+    };
+    offCtx.fillStyle = colors[p.type] || '#e94560';
+    offCtx.fillRect(p.x, p.y, p.w, p.h);
+  }
+  
+  // Stars
+  offCtx.fillStyle = '#ffd700';
+  for (const s of level.stars) {
+    offCtx.beginPath();
+    offCtx.arc(s.x, s.y, 3, 0, Math.PI * 2);
+    offCtx.fill();
+  }
+  
+  // Spawn
+  offCtx.strokeStyle = '#00ff00';
+  offCtx.lineWidth = 2;
+  offCtx.beginPath();
+  offCtx.arc(level.spawn.x, level.spawn.y, 5, 0, Math.PI * 2);
+  offCtx.stroke();
+  
+  offCtx.restore();
+  
+  return offCanvas;
+}
+
 // --- Game Init ---
 function startGame(daily) {
   ensureAudio();
@@ -969,6 +1442,15 @@ function update() {
       isPreviewMode = false;
       state = STATE.EDITOR;
       ball.r = 8; // reset radius
+    } else if (isPlayingCommunityLevel) {
+      // Community level game over - go to STATE.OVER and offer rating
+      state = STATE.OVER;
+      sfxGameOver();
+      stats.totalDeaths++;
+      if (score > stats.bestScore) stats.bestScore = score;
+      saveStats();
+      checkAchievements();
+      ball.r = 8; // reset radius
     } else {
       state = STATE.OVER;
       sfxGameOver();
@@ -984,6 +1466,9 @@ function update() {
       ball.r = 8; // reset radius
     }
   }
+  
+  // Check achievements
+  if (isPlaying()) checkAchievements();
 }
 
 // --- Draw ---
@@ -1140,6 +1625,7 @@ function draw() {
   if (state === STATE.TITLE) drawTitleScreen();
   if (state === STATE.OVER) drawGameOver();
   if (state === STATE.EDITOR) drawEditor();
+  if (state === STATE.GALLERY) drawGallery();
 
   // Achievement toast
   if (achievementToast && achievementToast.timer > 0) {
@@ -1240,7 +1726,7 @@ function drawTitleScreen() {
   // Controls hint
   ctx.fillStyle = '#555';
   ctx.font = '10px "Courier New", monospace';
-  ctx.fillText('[A] Achievements  [M] Mute  [E] Editor', W / 2, H / 2 + 240);
+  ctx.fillText('[A] Achievements  [M] Mute  [E] Editor  [C] Gallery', W / 2, H / 2 + 240);
 }
 
 function drawEditor() {
@@ -1359,7 +1845,7 @@ function drawEditor() {
   ctx.fillStyle = '#fff';
   ctx.font = '11px "Courier New", monospace';
   ctx.textAlign = 'left';
-  ctx.fillText('Click to place | [X] Export | [I] Import | [F] File', 10, H - 38);
+  ctx.fillText('Click to place | [X] Export | [I] Import | [U] Upload', 10, H - 38);
   ctx.fillText('[P] Preview | [M] Metadata | [ESC] Exit | ↑↓ Scroll', 10, H - 24);
   
   // Export/Import buttons
@@ -1592,7 +2078,52 @@ function drawGameOver() {
   }
   ctx.fillStyle = '#aaa';
   ctx.font = '14px "Courier New", monospace';
-  ctx.fillText('Click or Tap to Restart', W / 2, H / 2 + 80);
+  if (communityLevelId) {
+    if (LevelAPI.hasRated(communityLevelId)) {
+      ctx.fillText('You already rated this level', W / 2, H / 2 + 80);
+      ctx.font = '12px "Courier New", monospace';
+      ctx.fillText('Click / Tap to Return', W / 2, H / 2 + 100);
+    } else {
+      ctx.fillText('Press [R] to rate level', W / 2, H / 2 + 80);
+      ctx.font = '12px "Courier New", monospace';
+      ctx.fillText('or Click / Tap to Return', W / 2, H / 2 + 100);
+    }
+  } else {
+    ctx.fillText('Click or Tap to Restart', W / 2, H / 2 + 80);
+  }
+  
+  // Rating modal
+  if (showRatingModal) {
+    ctx.fillStyle = 'rgba(10,10,30,0.95)';
+    ctx.fillRect(0, 0, W, H);
+    
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 22px "Courier New", monospace';
+    ctx.fillText('RATE THIS LEVEL', W / 2, H / 2 - 60);
+    
+    ctx.font = '14px "Courier New", monospace';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('Press 1-5 stars, then [Enter]', W / 2, H / 2 - 20);
+    
+    // Star rating display
+    for (let i = 1; i <= 5; i++) {
+      const sx = W / 2 - 70 + (i - 1) * 35;
+      const sy = H / 2 + 20;
+      ctx.font = '24px sans-serif';
+      ctx.fillStyle = i <= pendingRating ? '#ffd700' : '#555';
+      ctx.fillText('★', sx, sy);
+      
+      // Number hint
+      ctx.font = '10px "Courier New", monospace';
+      ctx.fillStyle = '#aaa';
+      ctx.fillText(i, sx, sy + 25);
+    }
+    
+    ctx.font = '11px "Courier New", monospace';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('[ESC] Skip', W / 2, H / 2 + 80);
+  }
 }
 
 function drawStar(x, y, r) {
@@ -1618,6 +2149,122 @@ function roundRect(c, x, y, w, h, r) {
   c.lineTo(x, y + r);
   c.quadraticCurveTo(x, y, x + r, y);
   c.closePath();
+}
+
+function drawGallery() {
+  // Background
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#0f3460');
+  grad.addColorStop(1, '#1a1a2e');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+  
+  // Title
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#16c79a';
+  ctx.font = 'bold 28px "Courier New", monospace';
+  ctx.fillText('COMMUNITY GALLERY', W / 2, 40);
+  
+  // Sort buttons
+  const sortLabels = { recent: '1:Recent', popular: '2:Popular', 'top-rated': '3:Top Rated' };
+  const sortBtns = [
+    { x: 20, y: 70, w: 110, sort: 'recent' },
+    { x: 140, y: 70, w: 110, sort: 'popular' },
+    { x: 260, y: 70, w: 110, sort: 'top-rated' }
+  ];
+  
+  for (const btn of sortBtns) {
+    const isActive = gallerySort === btn.sort;
+    ctx.fillStyle = isActive ? 'rgba(22,199,154,0.3)' : 'rgba(255,255,255,0.05)';
+    roundRect(ctx, btn.x, btn.y, btn.w, 25, 4);
+    ctx.fill();
+    ctx.strokeStyle = isActive ? '#16c79a' : 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = isActive ? 2 : 1;
+    roundRect(ctx, btn.x, btn.y, btn.w, 25, 4);
+    ctx.stroke();
+    ctx.fillStyle = isActive ? '#fff' : '#aaa';
+    ctx.font = 'bold 11px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(sortLabels[btn.sort], btn.x + btn.w / 2, btn.y + 17);
+  }
+  
+  // Level cards
+  if (galleryLevels.length === 0) {
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#aaa';
+    ctx.font = '14px "Courier New", monospace';
+    ctx.fillText('No levels yet. Create one in the editor!', W / 2, H / 2);
+  } else {
+    const startY = 110;
+    const cardH = 90;
+    const visibleCards = Math.min(5, galleryLevels.length);
+    
+    for (let i = 0; i < visibleCards; i++) {
+      const idx = galleryScroll + i;
+      if (idx >= galleryLevels.length) break;
+      
+      const level = galleryLevels[idx];
+      const cardY = startY + i * (cardH + 10);
+      const isHighlighted = idx === galleryScroll;
+      
+      // Card background
+      ctx.fillStyle = isHighlighted ? 'rgba(22,199,154,0.15)' : 'rgba(255,255,255,0.05)';
+      roundRect(ctx, 10, cardY, W - 20, cardH, 6);
+      ctx.fill();
+      ctx.strokeStyle = isHighlighted ? '#16c79a' : 'rgba(255,255,255,0.2)';
+      ctx.lineWidth = isHighlighted ? 2 : 1;
+      roundRect(ctx, 10, cardY, W - 20, cardH, 6);
+      ctx.stroke();
+      
+      // Thumbnail
+      const thumb = renderLevelThumbnail(level);
+      ctx.drawImage(thumb, 20, cardY + 5, 60, 80);
+      
+      // Level info
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 14px "Courier New", monospace';
+      const nameText = level.metadata.name.length > 22 ? level.metadata.name.substring(0, 22) + '...' : level.metadata.name;
+      ctx.fillText(nameText, 90, cardY + 20);
+      
+      ctx.font = '10px "Courier New", monospace';
+      ctx.fillStyle = '#aaa';
+      const descText = level.metadata.description.length > 28 ? level.metadata.description.substring(0, 28) + '...' : level.metadata.description;
+      ctx.fillText(descText || 'No description', 90, cardY + 35);
+      
+      // Difficulty badge
+      const diffColors = { Easy: '#00ff88', Medium: '#ffd700', Hard: '#ff8c00', Expert: '#ff3333' };
+      ctx.fillStyle = diffColors[level.metadata.difficulty] || '#aaa';
+      ctx.font = 'bold 9px "Courier New", monospace';
+      ctx.fillText(level.metadata.difficulty, 90, cardY + 50);
+      
+      // Stats
+      ctx.fillStyle = '#888';
+      ctx.font = '9px "Courier New", monospace';
+      ctx.fillText('★ ' + level.rating.toFixed(1) + ' (' + level.ratingCount + ')', 90, cardY + 65);
+      ctx.fillText('▶ ' + level.plays + ' plays', 90, cardY + 78);
+      
+      // Author
+      ctx.fillStyle = '#666';
+      ctx.font = '8px "Courier New", monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText('by ' + level.metadata.author, W - 20, cardY + 78);
+    }
+    
+    // Scroll indicator
+    if (galleryLevels.length > visibleCards) {
+      ctx.fillStyle = '#555';
+      ctx.font = '10px "Courier New", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('↑↓ ' + (galleryScroll + 1) + '/' + galleryLevels.length, W / 2, H - 15);
+    }
+  }
+  
+  // Instructions
+  ctx.fillStyle = '#aaa';
+  ctx.font = '11px "Courier New", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('[Enter] Play | [1-3] Sort | [ESC] Back', W / 2, H - 35);
 }
 
 (function loop() { update(); draw(); requestAnimationFrame(loop); })();
