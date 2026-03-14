@@ -2000,11 +2000,11 @@ function update() {
         if (p.type === 'bouncy') {
           ball.vy = baseVy * 2 * boostMul;
           sfxBouncy();
-          spawnParticles(ball.x, p.y, '#00ff88', boostMul > 1 ? 20 : 8); // More particles if boosted
+          spawnParticles(ball.x, p.y, '#00FF7F', boostMul > 1 ? 20 : 8); // More particles if boosted
           // Extra visual feedback for bouncy platforms
           if (boostMul === 1) {
             // Non-boosted bouncy: show "2X BOUNCE!" text
-            feedbackText = { text: '2X BOUNCE!', x: ball.x, y: p.y, color: '#00ff88', timer: 40 };
+            feedbackText = { text: '2X BOUNCE!', x: ball.x, y: p.y, color: '#00FF7F', timer: 40 };
           }
         } else if (p.type === 'breakable') {
           ball.vy = baseVy * boostMul;
@@ -2199,7 +2199,7 @@ function draw() {
     switch (p.type) {
       case 'bouncy':
         p.pulse += 0.06;
-        c1 = '#00ff88'; c2 = '#00cc66';
+        c1 = '#00FF7F'; c2 = '#00D060'; // Bright spring green
         break;
       case 'breakable':
         c1 = '#ff8c00'; c2 = '#cc6600';
@@ -2218,10 +2218,28 @@ function draw() {
     pg.addColorStop(0, c1); pg.addColorStop(1, c2);
     ctx.fillStyle = pg;
     // Bouncy platforms pulse in size
-    const scaleW = p.type === 'bouncy' ? 1 + Math.sin(p.pulse) * 0.03 : 1;
+    const scaleW = p.type === 'bouncy' ? 1 + Math.sin(p.pulse) * 0.05 : 1;
     const drawX = p.x - (p.w * scaleW - p.w) / 2;
     roundRect(ctx, drawX, p.y, p.w * scaleW, p.h, 3);
     ctx.fill();
+    // Bouncy spring indicator
+    if (p.type === 'bouncy') {
+      ctx.strokeStyle = '#FFFF00'; // Bright yellow spring
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      const springY = p.y + 3;
+      const springSteps = 5;
+      const stepW = p.w / springSteps;
+      let direction = 1;
+      for (let i = 0; i <= springSteps; i++) {
+        const x = p.x + i * stepW;
+        const offsetY = direction * 3;
+        ctx.lineTo(x, springY + offsetY);
+        direction *= -1;
+      }
+      ctx.stroke();
+    }
     // Breakable crack lines
     if (p.type === 'breakable') {
       ctx.strokeStyle = '#553300';
