@@ -354,6 +354,19 @@ const TUTORIAL_CHECKPOINTS = [
   { y: -150, text: 'Amazing! You\'ve mastered the basics!' }
 ];
 
+// --- Contextual Hints State ---
+let editorVisited = localStorage.getItem('pb_editor_visited') === '1';
+let galleryVisited = localStorage.getItem('pb_gallery_visited') === '1';
+let multiplayerVisited = localStorage.getItem('pb_multiplayer_visited') === '1';
+let contextualHint = null; // { text, icon, timer }
+const HINT_DURATION = 240; // 4 seconds at 60fps
+
+const CONTEXTUAL_HINTS = {
+  editor: { icon: '🎨', text: 'Welcome to the Editor! Click to place platforms.\nUse toolbar keys to switch tools. Press P to preview your level.' },
+  gallery: { icon: '🏠', text: 'Welcome to the Community Gallery! Browse levels, click to play.\nRate levels after completing them.' },
+  multiplayer: { icon: '🎮', text: 'Welcome to Multiplayer! Create a room or join with a code.\nAll players must ready up to start.' }
+};
+
 const SKINS = [
   { name: 'Classic', hint: 'Default', unlock: () => true,
     draw(cx, x, y, r) {
@@ -1183,6 +1196,12 @@ document.onkeydown = e => {
     showFPS = !showFPS;
   }
   
+  // Contextual hint dismissal
+  if (contextualHint) {
+    contextualHint = null;
+    return;
+  }
+
   // Tutorial overlay controls
   if (showTutorialOverlay && state === STATE.TITLE) {
     e.preventDefault();
@@ -1547,6 +1566,12 @@ document.addEventListener('paste', (e) => {
 });
 
 canvas.onclick = (e) => {
+  // Dismiss contextual hint on click
+  if (contextualHint) {
+    contextualHint = null;
+    return;
+  }
+
   if (state === STATE.EDITOR) {
     handleEditorClick(e);
   } else if (state === STATE.GALLERY) {
@@ -1760,6 +1785,13 @@ function startEditor() {
   showMetadataModal = false;
   metadataInputs = { name: '', description: '', difficulty: 'Medium', tags: '' };
   metadataFocusField = 'name';
+  
+  // Show contextual hint for first-time visitors
+  if (!editorVisited) {
+    contextualHint = { ...CONTEXTUAL_HINTS.editor, timer: HINT_DURATION };
+    editorVisited = true;
+    localStorage.setItem('pb_editor_visited', '1');
+  }
 }
 
 function handleEditorClick(e) {
@@ -2064,6 +2096,13 @@ function startGallery() {
   galleryLevels = LevelAPI.list(gallerySort);
   galleryScroll = 0;
   selectedGalleryLevel = null;
+  
+  // Show contextual hint for first-time visitors
+  if (!galleryVisited) {
+    contextualHint = { ...CONTEXTUAL_HINTS.gallery, timer: HINT_DURATION };
+    galleryVisited = true;
+    localStorage.setItem('pb_gallery_visited', '1');
+  }
 }
 
 // --- Multiplayer Lobby Functions ---
@@ -2078,6 +2117,13 @@ function enterLobby() {
     multiplayerClient = new MultiplayerClient();
   }
   multiplayerClient.connect();
+  
+  // Show contextual hint for first-time visitors
+  if (!multiplayerVisited) {
+    contextualHint = { ...CONTEXTUAL_HINTS.multiplayer, timer: HINT_DURATION };
+    multiplayerVisited = true;
+    localStorage.setItem('pb_multiplayer_visited', '1');
+  }
 }
 
 function leaveLobby() {
@@ -2535,6 +2581,12 @@ function seededRandom(seed) {
 
 // --- Update ---
 function update() {
+  // Update contextual hint timer
+  if (contextualHint && contextualHint.timer > 0) {
+    contextualHint.timer--;
+    if (contextualHint.timer <= 0) contextualHint = null;
+  }
+
   if (state === STATE.EDITOR) {
     // Editor camera control with arrow keys
     if (keys['ArrowUp']) cameraY -= 5;
@@ -3456,6 +3508,28 @@ function drawTitleScreen() {
     ctx.fillStyle = '#16c79a';
     ctx.font = 'bold 13px "Courier New", monospace';
     ctx.fillText('[Enter] Continue  [ESC] Skip', W / 2, H - 40);
+  }
+
+  // Contextual hints overlay
+  if (contextualHint) {
+    ctx.fillStyle = 'rgba(10,10,30,0.92)';
+    const hintHeight = 100;
+    ctx.fillRect(0, 0, W, hintHeight);
+    
+    ctx.textAlign = 'center';
+    ctx.font = '32px sans-serif';
+    ctx.fillText(contextualHint.icon, W / 2, 35);
+    
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 14px "Courier New", monospace';
+    const lines = contextualHint.text.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i], W / 2, 55 + i * 18);
+    }
+    
+    ctx.fillStyle = '#aaa';
+    ctx.font = '11px "Courier New", monospace';
+    ctx.fillText('Press any key or click to dismiss', W / 2, hintHeight - 12);
   }
 }
 
