@@ -117,3 +117,71 @@ Changes required before merge. Issues #1-4 must be fixed. Issue #5 optional. Ass
 - State machine flow verification (all transitions checked)
 - Acceptance criteria mapping (line-by-line validation)
 - Performance analysis (thumbnail generation concern)
+
+### Issue #28 — Multiplayer Foundation PR Review
+- **Date:** 2025-07-18
+- **Branch:** squad/28-multiplayer-foundation
+- **PR:** #35 (by Proto Man)
+- **Status:** Changes Required
+
+**Review Scope:**
+Comprehensive QA review of multiplayer foundation (965 new lines). First server-side code addition to project. Reviewed server architecture, WebSocket implementation, client integration, security, memory management, and edge cases.
+
+**Critical Issues Found:**
+
+1. **Memory Leak: Event Listeners** (game.js:195-246)
+   - `MultiplayerClient.disconnect()` never calls `socket.removeAllListeners()`
+   - All 8 socket.on() handlers accumulate on each lobby entry/exit
+   - After 10 lobby visits: 80 event handlers in memory
+   - Causes memory growth and duplicate event firing
+   - **Impact:** Application becomes unstable over time
+
+2. **Memory Leak: Timer Not Cleared** (game.js:249-254)
+   - Ping loop `setInterval()` never cleared in `disconnect()`
+   - New timer created every lobby entry, old ones never stopped
+   - After 10 visits: 10 timers firing every 2 seconds
+   - Wastes CPU and network bandwidth
+   - **Impact:** Performance degrades, memory leaks
+
+3. **Security: CORS Too Permissive** (server/index.js:16, major)
+   - `origin: '*'` allows any domain to connect
+   - Production security risk
+   - Should use env-configurable whitelist
+
+**What Worked Well:**
+- Rate limiting implemented (20 msg/sec per player)
+- Input validation (name truncation to 20 chars)
+- Room cleanup (empty rooms deleted after 60s)
+- Countdown properly cancels when player leaves
+- Room state machine correct (WAITING→STARTING→PLAYING→FINISHED)
+- Server disconnect handling comprehensive
+- Code quality high (clean, commented, consistent)
+- Dependencies minimal (socket.io 4.7.2, express 4.18.2)
+- package.json properly configured
+
+**Acceptance Criteria Results:**
+- 12/14 criteria passed
+- 2 failed: Memory leaks and CORS security
+- All features functional, but not production-ready
+
+**Edge Cases Checked:**
+✅ Room full (max 4 players enforced)  
+✅ Invalid room code (returns error)  
+✅ Player leaves during countdown (countdown cancels, state resets)  
+✅ Disconnect handling (players removed, rooms cleaned)  
+✅ Quick match queue cleanup (removed on disconnect)  
+✅ Timer cleanup on countdown completion  
+❌ Socket event listeners not cleaned up  
+❌ Ping interval not cleared  
+
+**Recommendation:**
+Changes required before merge. Issues #1-2 are critical blockers. Issue #3 should be fixed for production. Proto Man under lockout — assigned to Ralph or Cut Man for fixes.
+
+**QA Methodology:**
+- Server code syntax validation (Node.js --check)
+- Client code syntax validation
+- Memory management analysis (event listeners, timers)
+- Security review (CORS, rate limiting, input validation)
+- State machine verification (Room lifecycle)
+- Edge case testing (disconnects, full rooms, invalid codes)
+- Acceptance criteria validation (14 points checked)
