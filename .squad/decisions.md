@@ -34,3 +34,14 @@
 **Decisions:** Backend stack choice TBD before #24 starts. Multiplayer architecture choice TBD before #27 starts. Issue #20 (Define next roadmap) closed — Phase 3 planning complete.
 **Owner:** Proto Man
 **Next Review:** After Wave 1 completes (all 4 issues merged)
+
+---
+
+### 2026-03-14T10:20Z: Editor State Pattern & Data Structure
+**By:** Cut Man (Game Developer)
+**Tier:** T1
+**Status:** ✅ ACTIVE
+**What:** Add STATE.EDITOR (value: 4) to the game state enum and use a separate `editorLevel` object to store editor data independently from gameplay state. EditorLevel structure `{platforms[], stars[], spawn{x,y}}` mirrors gameplay format, enabling non-destructive preview mode and future export/import.
+**Why:** Clean separation of editor from gameplay state, non-destructive preview (modify for playtesting, restore cleanly), data portability for issue #23 (import/export), and state machine clarity following existing pattern (TITLE:0, PLAY:1, OVER:2, DAILY:3).
+**Owner:** Cut Man
+**Next Review:** Upon issue #22 completion
