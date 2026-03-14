@@ -17,7 +17,195 @@ ctx.scale(dpr, dpr);
 // Multiplayer server configuration
 const GAME_SERVER_URL = 'http://localhost:3000';
 
-const STATE = { TITLE: 0, PLAY: 1, OVER: 2, DAILY: 3, EDITOR: 4, GALLERY: 5, LOBBY: 6, PAUSED: 7 };
+// --- Accessibility Settings ---
+const COLOR_PALETTES = {
+  normal: {
+    name: 'Normal',
+    // Ball skins
+    ballRed: '#e94560',
+    ballRedDark: '#c81e45',
+    ballGreen: '#00ff88',
+    ballGold: '#ffd700',
+    ballGoldDark: '#b8860b',
+    ballBlue: '#88ddff',
+    ballBlueDark: '#0088cc',
+    ballPurple: '#9944ee',
+    ballPurpleDark: '#6633aa',
+    // Platforms
+    platformBouncy: '#00ff88',
+    platformBreakable: '#ff8c00',
+    platformPortal: '#b44dff',
+    platformMoving: '#16c79a',
+    platformStatic: '#e94560',
+    platformStaticDark: '#c81e45',
+    // UI & Effects
+    star: '#ffd700',
+    particles: '#ffd700',
+    shield: '#4488ff',
+    magnet: '#ffdd00',
+    boost: '#ff4444',
+    background: '#0f3460',
+    backgroundDark: '#1a1a2e',
+    text: '#ffffff',
+    textSecondary: '#aaa',
+    accent: '#ffd700',
+    border: '#e94560',
+    // Player colors (multiplayer)
+    player1: '#e94560',
+    player2: '#00ff88',
+    player3: '#ffd700',
+    player4: '#88ddff'
+  },
+  deuteranopia: {
+    name: 'Deuteranopia',
+    // Red-green colorblind (most common) - replace greens with blues/yellows
+    ballRed: '#e94560',
+    ballRedDark: '#c81e45',
+    ballGreen: '#4488ff', // Green → Blue
+    ballGold: '#ffd700',
+    ballGoldDark: '#b8860b',
+    ballBlue: '#88ddff',
+    ballBlueDark: '#0088cc',
+    ballPurple: '#9944ee',
+    ballPurpleDark: '#6633aa',
+    platformBouncy: '#4488ff', // Green → Blue
+    platformBreakable: '#ff8c00',
+    platformPortal: '#b44dff',
+    platformMoving: '#88ddff', // Teal → Light blue
+    platformStatic: '#e94560',
+    platformStaticDark: '#c81e45',
+    star: '#ffd700',
+    particles: '#ffd700',
+    shield: '#4488ff',
+    magnet: '#ffdd00',
+    boost: '#ff4444',
+    background: '#0f3460',
+    backgroundDark: '#1a1a2e',
+    text: '#ffffff',
+    textSecondary: '#aaa',
+    accent: '#ffd700',
+    border: '#e94560',
+    player1: '#e94560',
+    player2: '#4488ff', // Green → Blue
+    player3: '#ffd700',
+    player4: '#88ddff'
+  },
+  protanopia: {
+    name: 'Protanopia',
+    // Red-green colorblind (less common) - similar to deuteranopia
+    ballRed: '#ffa500', // Red → Orange
+    ballRedDark: '#cc8400',
+    ballGreen: '#0088ff', // Green → Blue
+    ballGold: '#ffd700',
+    ballGoldDark: '#b8860b',
+    ballBlue: '#88ddff',
+    ballBlueDark: '#0088cc',
+    ballPurple: '#9944ee',
+    ballPurpleDark: '#6633aa',
+    platformBouncy: '#0088ff', // Green → Blue
+    platformBreakable: '#ff8c00',
+    platformPortal: '#b44dff',
+    platformMoving: '#00ccff', // Teal → Cyan
+    platformStatic: '#ffa500', // Red → Orange
+    platformStaticDark: '#cc8400',
+    star: '#ffd700',
+    particles: '#ffd700',
+    shield: '#4488ff',
+    magnet: '#ffdd00',
+    boost: '#ff8c00', // Red → Orange
+    background: '#0f3460',
+    backgroundDark: '#1a1a2e',
+    text: '#ffffff',
+    textSecondary: '#aaa',
+    accent: '#ffd700',
+    border: '#ffa500', // Red → Orange
+    player1: '#ffa500', // Red → Orange
+    player2: '#0088ff', // Green → Blue
+    player3: '#ffd700',
+    player4: '#88ddff'
+  },
+  tritanopia: {
+    name: 'Tritanopia',
+    // Blue-yellow colorblind (rare) - replace blues with pinks/reds
+    ballRed: '#e94560',
+    ballRedDark: '#c81e45',
+    ballGreen: '#00ff88',
+    ballGold: '#ff88cc', // Gold → Pink
+    ballGoldDark: '#cc5599',
+    ballBlue: '#ff6699', // Blue → Pink
+    ballBlueDark: '#cc3366',
+    ballPurple: '#9944ee',
+    ballPurpleDark: '#6633aa',
+    platformBouncy: '#00ff88',
+    platformBreakable: '#ff8c00',
+    platformPortal: '#b44dff',
+    platformMoving: '#16c79a',
+    platformStatic: '#e94560',
+    platformStaticDark: '#c81e45',
+    star: '#ff88cc', // Gold → Pink
+    particles: '#ff88cc', // Gold → Pink
+    shield: '#ff6699', // Blue → Pink
+    magnet: '#ff88cc', // Yellow → Pink
+    boost: '#ff4444',
+    background: '#0f3460',
+    backgroundDark: '#1a1a2e',
+    text: '#ffffff',
+    textSecondary: '#aaa',
+    accent: '#ff88cc', // Gold → Pink
+    border: '#e94560',
+    player1: '#e94560',
+    player2: '#00ff88',
+    player3: '#ff88cc', // Gold → Pink
+    player4: '#ff6699' // Blue → Pink
+  }
+};
+
+// Load accessibility settings from localStorage
+const defaultAccessibility = {
+  colorPalette: 'normal',
+  highContrast: false,
+  reducedMotion: false,
+  screenReader: true
+};
+let accessibility = JSON.parse(localStorage.getItem('pb_accessibility') || JSON.stringify(defaultAccessibility));
+
+// Check system preference for reduced motion
+if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  accessibility.reducedMotion = true;
+}
+
+function getColor(key) {
+  let color = COLOR_PALETTES[accessibility.colorPalette][key];
+  
+  // High contrast adjustments
+  if (accessibility.highContrast) {
+    // Increase luminance for better contrast
+    if (key === 'text') return '#ffffff';
+    if (key === 'textSecondary') return '#ffffff';
+    if (key === 'background') return '#000000';
+    if (key === 'backgroundDark') return '#000000';
+    // Make accent colors brighter
+    if (key === 'star' || key === 'accent' || key === 'particles') return '#ffff00';
+  }
+  
+  return color;
+}
+
+function saveAccessibilitySettings() {
+  localStorage.setItem('pb_accessibility', JSON.stringify(accessibility));
+}
+
+function announceToScreenReader(message) {
+  if (!accessibility.screenReader) return;
+  const ariaLive = document.getElementById('aria-live');
+  if (ariaLive) {
+    ariaLive.textContent = message;
+    // Clear after 1 second to allow for new announcements
+    setTimeout(() => { ariaLive.textContent = ''; }, 1000);
+  }
+}
+
+const STATE = { TITLE: 0, PLAY: 1, OVER: 2, DAILY: 3, EDITOR: 4, GALLERY: 5, LOBBY: 6, PAUSED: 7, SETTINGS: 8 };
 let state = STATE.TITLE;
 let pausedFromState = null;
 let score = 0;
@@ -30,6 +218,27 @@ let activePower = null; // { type, timer }
 let cameraY = 0;
 let maxHeight = 0;
 let feedbackText = null; // { text, x, y, color, timer }
+
+// --- Performance Optimization: Particle Pooling ---
+const MAX_PARTICLES = 200;
+let particlePool = [];
+for (let i = 0; i < MAX_PARTICLES; i++) {
+  particlePool.push({ x: 0, y: 0, vx: 0, vy: 0, life: 0, color: '#fff', r: 2, active: false });
+}
+
+// --- Performance Optimization: FPS Counter ---
+let showFPS = false;
+let frameCount = 0;
+let lastFPSTime = performance.now();
+let currentFPS = 60;
+
+// --- Visual Polish State ---
+let shakeOffset = { x: 0, y: 0, decay: 0 };
+let ballTrail = []; // Store last 10 ball positions for trail effect
+let milestoneFlash = null; // { alpha, milestone }
+let lastMilestone = 0;
+let backgroundTheme = 0; // 0-3 for different themes
+let backgroundShapes = []; // Animated background elements
 
 // --- Level Editor State ---
 let editorLevel = { platforms: [], stars: [], spawn: { x: W / 2, y: H - 100 } };
@@ -75,37 +284,37 @@ const SKINS = [
   { name: 'Classic', hint: 'Default', unlock: () => true,
     draw(cx, x, y, r) {
       const g = cx.createRadialGradient(x - 2, y - 2, 1, x, y, r);
-      g.addColorStop(0, '#ffffff'); g.addColorStop(0.5, '#e94560'); g.addColorStop(1, '#c81e45');
+      g.addColorStop(0, '#ffffff'); g.addColorStop(0.5, getColor('ballRed')); g.addColorStop(1, getColor('ballRedDark'));
       cx.fillStyle = g; cx.beginPath(); cx.arc(x, y, r, 0, Math.PI * 2); cx.fill();
     }},
   { name: 'Neon Green', hint: 'Score 200+', unlock: () => stats.bestScore >= 200,
     draw(cx, x, y, r) {
-      cx.shadowColor = '#00ff88'; cx.shadowBlur = 18;
-      cx.fillStyle = '#00ff88'; cx.beginPath(); cx.arc(x, y, r, 0, Math.PI * 2); cx.fill();
+      cx.shadowColor = getColor('ballGreen'); cx.shadowBlur = 18;
+      cx.fillStyle = getColor('ballGreen'); cx.beginPath(); cx.arc(x, y, r, 0, Math.PI * 2); cx.fill();
       cx.shadowBlur = 0;
     }},
   { name: 'Gold', hint: '50 stars total', unlock: () => stats.totalStars >= 50,
     draw(cx, x, y, r) {
       const g = cx.createRadialGradient(x - 2, y - 2, 1, x, y, r);
-      g.addColorStop(0, '#fff8dc'); g.addColorStop(0.5, '#ffd700'); g.addColorStop(1, '#b8860b');
+      g.addColorStop(0, '#fff8dc'); g.addColorStop(0.5, getColor('ballGold')); g.addColorStop(1, getColor('ballGoldDark'));
       cx.fillStyle = g; cx.beginPath(); cx.arc(x, y, r, 0, Math.PI * 2); cx.fill();
     }},
   { name: 'Ice', hint: 'Score 500+', unlock: () => stats.bestScore >= 500,
     draw(cx, x, y, r) {
       const g = cx.createRadialGradient(x - 2, y - 2, 1, x, y, r);
-      g.addColorStop(0, '#ffffff'); g.addColorStop(0.4, '#88ddff'); g.addColorStop(1, '#0088cc');
+      g.addColorStop(0, '#ffffff'); g.addColorStop(0.4, getColor('ballBlue')); g.addColorStop(1, getColor('ballBlueDark'));
       cx.fillStyle = g; cx.beginPath(); cx.arc(x, y, r, 0, Math.PI * 2); cx.fill();
     }},
   { name: 'Shadow', hint: 'Play 10 games', unlock: () => stats.totalGames >= 10,
     draw(cx, x, y, r) {
-      cx.globalAlpha = 0.4; cx.fillStyle = '#6633aa';
+      cx.globalAlpha = 0.4; cx.fillStyle = getColor('ballPurpleDark');
       cx.beginPath(); cx.arc(x + 3, y + 3, r, 0, Math.PI * 2); cx.fill();
-      cx.globalAlpha = 1; cx.fillStyle = '#9944ee';
+      cx.globalAlpha = 1; cx.fillStyle = getColor('ballPurple');
       cx.beginPath(); cx.arc(x, y, r, 0, Math.PI * 2); cx.fill();
     }},
   { name: 'Pixel', hint: 'Score 100 no stars', unlock: () => stats.bestScore >= 100,
     draw(cx, x, y, r) {
-      cx.fillStyle = '#e94560'; cx.fillRect(x - r, y - r, r * 2, r * 2);
+      cx.fillStyle = getColor('ballRed'); cx.fillRect(x - r, y - r, r * 2, r * 2);
     }},
   { name: 'Rainbow', hint: 'Score 1000+', unlock: () => stats.bestScore >= 1000,
     draw(cx, x, y, r) {
@@ -177,7 +386,7 @@ let raceTimer = 60;
 let positionUpdateInterval = null;
 let showPostRaceScreen = false;
 let raceRankings = [];
-let PLAYER_COLORS = ['#e94560', '#00ff88', '#ffd700', '#88ddff'];
+let PLAYER_COLORS = [getColor('player1'), getColor('player2'), getColor('player3'), getColor('player4')];
 
 // MultiplayerClient - Socket.io wrapper
 class MultiplayerClient {
@@ -894,6 +1103,12 @@ document.onkeydown = e => {
     return;
   }
   
+  // FPS counter toggle (Shift+F) - dev mode only
+  if (e.key === 'F' && e.shiftKey) {
+    e.preventDefault();
+    showFPS = !showFPS;
+  }
+  
   if ((e.key === 'a') && !isPlaying()) showAchievementOverlay = !showAchievementOverlay;
   // Skin selector on title screen
   if (state === STATE.TITLE && !showAchievementOverlay) {
@@ -904,6 +1119,7 @@ document.onkeydown = e => {
   if (e.key === 'e' && state === STATE.TITLE && !showAchievementOverlay) startEditor();
   if (e.key === 'c' && state === STATE.TITLE && !showAchievementOverlay) startGallery();
   if (e.key === 'm' && state === STATE.TITLE && !showAchievementOverlay) enterLobby();
+  if (e.key === 's' && state === STATE.TITLE && !showAchievementOverlay) startSettings();
   if ((e.key === ' ' || e.key === 'Enter') && !isPlaying()) startGame();
   // Lobby controls
   if (state === STATE.LOBBY) {
@@ -1154,6 +1370,41 @@ document.onkeydown = e => {
       }
     }
   }
+  
+  // Settings controls
+  if (state === STATE.SETTINGS) {
+    if (e.key === 'Escape') {
+      state = STATE.TITLE;
+      saveAccessibilitySettings();
+      announceToScreenReader('Settings saved');
+      return;
+    }
+    if (e.key === '1') {
+      // Toggle colorblind mode
+      const modes = ['normal', 'deuteranopia', 'protanopia', 'tritanopia'];
+      const currentIndex = modes.indexOf(accessibility.colorPalette);
+      accessibility.colorPalette = modes[(currentIndex + 1) % modes.length];
+      // Update dynamic color references
+      PLAYER_COLORS = [getColor('player1'), getColor('player2'), getColor('player3'), getColor('player4')];
+      announceToScreenReader(`Color palette: ${COLOR_PALETTES[accessibility.colorPalette].name}`);
+    }
+    if (e.key === '2') {
+      // Toggle high contrast
+      accessibility.highContrast = !accessibility.highContrast;
+      announceToScreenReader(`High contrast: ${accessibility.highContrast ? 'on' : 'off'}`);
+    }
+    if (e.key === '3') {
+      // Toggle reduced motion
+      accessibility.reducedMotion = !accessibility.reducedMotion;
+      announceToScreenReader(`Reduced motion: ${accessibility.reducedMotion ? 'on' : 'off'}`);
+    }
+    if (e.key === '4') {
+      // Toggle screen reader
+      accessibility.screenReader = !accessibility.screenReader;
+      announceToScreenReader(`Screen reader: ${accessibility.screenReader ? 'on' : 'off'}`);
+    }
+    return;
+  }
 };
 document.onkeyup = e => { keys[e.key] = false; };
 
@@ -1230,20 +1481,124 @@ function makeStar(minY, maxY) {
   };
 }
 
-function spawnParticles(x, y, color, count) {
-  for (let i = 0; i < count; i++) {
+function spawnParticles(x, y, color, count, type = 'default') {
+  // Use pooled particles instead of creating new objects
+  let spawned = 0;
+  for (let i = 0; i < particlePool.length && spawned < count; i++) {
+    if (!particlePool[i].active) {
+      const p = particlePool[i];
+      p.x = x;
+      p.y = y;
+      p.vx = (Math.random() - 0.5) * 4;
+      p.vy = (Math.random() - 0.5) * 4;
+      p.life = 20 + Math.random() * 20;
+      p.color = color;
+      p.r = 2 + Math.random() * 3;
+      p.type = type;
+      p.rotation = Math.random() * Math.PI * 2;
+      p.rotSpeed = (Math.random() - 0.5) * 0.3;
+      p.active = true;
+      spawned++;
+    }
+  }
+}
+
+// Screen shake effect
+function addScreenShake(intensity) {
+  shakeOffset.x = (Math.random() - 0.5) * intensity;
+  shakeOffset.y = (Math.random() - 0.5) * intensity;
+  shakeOffset.decay = intensity / 15; // Decay over 10-20 frames
+}
+
+// Update screen shake
+function updateScreenShake() {
+  if (Math.abs(shakeOffset.x) > 0.1 || Math.abs(shakeOffset.y) > 0.1) {
+    shakeOffset.x *= 0.85;
+    shakeOffset.y *= 0.85;
+  } else {
+    shakeOffset.x = 0;
+    shakeOffset.y = 0;
+  }
+}
+
+// Check and trigger milestone celebrations
+function checkMilestone(score) {
+  const milestones = [1000, 2500, 5000, 10000];
+  for (const m of milestones) {
+    if (score >= m && lastMilestone < m) {
+      lastMilestone = m;
+      triggerMilestoneCelebration(m);
+      return;
+    }
+  }
+}
+
+// Trigger milestone celebration
+function triggerMilestoneCelebration(milestone) {
+  // Full-screen flash
+  milestoneFlash = { alpha: 1.0, milestone };
+  
+  // Special particles - confetti explosion
+  for (let i = 0; i < 50; i++) {
+    const angle = (Math.PI * 2 * i) / 50;
+    const speed = 8 + Math.random() * 4;
     particles.push({
-      x, y,
-      vx: (Math.random() - 0.5) * 4,
-      vy: (Math.random() - 0.5) * 4,
-      life: 20 + Math.random() * 20,
-      color, r: 2 + Math.random() * 3
+      x: W / 2,
+      y: H / 2,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 60 + Math.random() * 20,
+      color: ['#ffd700', '#ff4444', '#00ff88', '#4488ff', '#ff00ff'][Math.floor(Math.random() * 5)],
+      r: 3 + Math.random() * 2,
+      type: 'confetti',
+      rotation: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() - 0.5) * 0.5
+    });
+  }
+  
+  // Update background theme
+  if (milestone === 1000) backgroundTheme = 1;
+  else if (milestone === 2500) backgroundTheme = 2;
+  else if (milestone === 5000) backgroundTheme = 3;
+  
+  // Screen shake
+  addScreenShake(20);
+  
+  // Sound
+  playTone(800, 0.1, 'sine', 0.15);
+  setTimeout(() => playTone(1000, 0.1, 'sine', 0.15), 100);
+  setTimeout(() => playTone(1200, 0.15, 'sine', 0.15), 200);
+}
+
+// Initialize background shapes for animated themes
+function initBackgroundShapes() {
+  backgroundShapes = [];
+  for (let i = 0; i < 15; i++) {
+    backgroundShapes.push({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      size: 20 + Math.random() * 40,
+      speed: 0.2 + Math.random() * 0.5,
+      angle: Math.random() * Math.PI * 2,
+      type: Math.floor(Math.random() * 3) // 0=circle, 1=square, 2=triangle
     });
   }
 }
 
+// Update background shapes
+function updateBackgroundShapes() {
+  for (const shape of backgroundShapes) {
+    shape.y += shape.speed;
+    shape.angle += 0.01;
+    if (shape.y > H + shape.size) {
+      shape.y = -shape.size;
+      shape.x = Math.random() * W;
+    }
+  }
+}
+
 const POWER_TYPES = ['shield', 'magnet', 'boost'];
-const POWER_COLORS = { shield: '#4488ff', magnet: '#ffdd00', boost: '#ff4444' };
+const POWER_COLORS = { shield: getColor('shield'), magnet: getColor('magnet'), boost: getColor('boost') };
 const POWER_ICONS = { shield: '🛡', magnet: '🧲', boost: '🚀' };
 let lastPowerUpHeight = 0;
 
@@ -1405,6 +1760,14 @@ function previewLevel() {
   runStars = 0;
   runBounces = 0;
   runStartTime = Date.now();
+  
+  // Initialize visual polish features
+  shakeOffset = { x: 0, y: 0, decay: 0 };
+  ballTrail = [];
+  milestoneFlash = null;
+  lastMilestone = 0;
+  backgroundTheme = 0;
+  initBackgroundShapes();
 }
 
 function exportLevel() {
@@ -1592,6 +1955,12 @@ function leaveLobby() {
   if (multiplayerClient) {
     multiplayerClient.disconnect();
   }
+}
+
+function startSettings() {
+  ensureAudio();
+  state = STATE.SETTINGS;
+  announceToScreenReader('Settings menu opened');
 }
 
 function handleGalleryClick(e) {
@@ -1786,6 +2155,14 @@ function startGame(daily) {
   stats.totalGames++;
   saveStats();
 
+  // Initialize visual polish features
+  shakeOffset = { x: 0, y: 0, decay: 0 };
+  ballTrail = [];
+  milestoneFlash = null;
+  lastMilestone = 0;
+  backgroundTheme = 0;
+  initBackgroundShapes();
+
   // Starting platform directly under the ball
   platforms.push({ x: W / 2 - 40, y: H - 60, w: 80, h: 10, type: 'static', dir: 0, speed: 0, broken: false, pulse: 0 });
   for (let i = 0; i < 8; i++) {
@@ -1823,6 +2200,14 @@ function startMultiplayerRace(data) {
   runStars = 0;
   runBounces = 0;
   runStartTime = Date.now();
+  
+  // Initialize visual polish features
+  shakeOffset = { x: 0, y: 0, decay: 0 };
+  ballTrail = [];
+  milestoneFlash = null;
+  lastMilestone = 0;
+  backgroundTheme = 0;
+  initBackgroundShapes();
   
   // Generate platforms from seed
   if (data.seed) {
@@ -1963,6 +2348,26 @@ function update() {
   }
   if (state !== STATE.PLAY && state !== STATE.DAILY) return;
 
+  // Update ball trail
+  ballTrail.push({ x: ball.x, y: ball.y, life: 30 }); // 0.5s at 60fps
+  if (ballTrail.length > 10) ballTrail.shift();
+  for (const t of ballTrail) {
+    if (t.life > 0) t.life--;
+  }
+  ballTrail = ballTrail.filter(t => t.life > 0);
+
+  // Update screen shake
+  updateScreenShake();
+  
+  // Update background shapes
+  updateBackgroundShapes();
+  
+  // Update milestone flash
+  if (milestoneFlash && milestoneFlash.alpha > 0) {
+    milestoneFlash.alpha -= 0.05;
+    if (milestoneFlash.alpha <= 0) milestoneFlash = null;
+  }
+
   const accel = 0.5;
   ball.vx *= 0.92;
   ball.vy += dailyMods.gravity;
@@ -1994,34 +2399,43 @@ function update() {
         if (boostMul > 1) {
           activePower = null;
           // Visual feedback for boost activation
-          spawnParticles(ball.x, p.y, '#ff4444', 15);
+          spawnParticles(ball.x, p.y, '#ff4444', 15, 'sparkle');
           feedbackText = { text: 'BOOST!', x: ball.x, y: p.y, color: '#ff4444', timer: 40 };
+          addScreenShake(8); // Medium shake for power-up
         }
+        
+        // Platform squash effect on bounce
+        p.squash = 0.7; // Platform squashes to 70% height
+        
         if (p.type === 'bouncy') {
           ball.vy = baseVy * 2 * boostMul;
           sfxBouncy();
-          spawnParticles(ball.x, p.y, '#00FF7F', boostMul > 1 ? 20 : 8); // More particles if boosted
+          spawnParticles(ball.x, p.y, '#00FF7F', boostMul > 1 ? 20 : 8, 'star'); // More particles if boosted
           // Extra visual feedback for bouncy platforms
           if (boostMul === 1) {
             // Non-boosted bouncy: show "2X BOUNCE!" text
             feedbackText = { text: '2X BOUNCE!', x: ball.x, y: p.y, color: '#00FF7F', timer: 40 };
           }
+          addScreenShake(6); // Small shake for bouncy
         } else if (p.type === 'breakable') {
           ball.vy = baseVy * boostMul;
           p.broken = true;
           sfxBreakable();
-          spawnParticles(ball.x, p.y, '#ff8c00', 12);
+          spawnParticles(ball.x, p.y, '#ff8c00', 12, 'confetti');
+          addScreenShake(4); // Small shake for breakable
         } else if (p.type === 'portal') {
           const highest = Math.min(...platforms.filter(q => !q.broken && q !== p).map(q => q.y));
           ball.y = highest - ball.r - 20;
           ball.vy = baseVy * boostMul;
           sfxPortal();
-          spawnParticles(ball.x, p.y, '#b44dff', 15);
+          spawnParticles(ball.x, p.y, '#b44dff', 15, 'sparkle');
+          addScreenShake(5); // Small shake for portal
           spawnParticles(ball.x, ball.y, '#b44dff', 10);
         } else {
           ball.vy = baseVy * boostMul;
           sfxBounce(ball.vy);
           spawnParticles(ball.x, p.y, '#e94560', 5);
+          addScreenShake(3); // Small shake for normal bounce
         }
         ball.y = p.type === 'portal' ? ball.y : p.y - ball.r;
         break;
@@ -2035,6 +2449,11 @@ function update() {
       p.x += p.speed * p.dir;
       if (p.x <= 0 || p.x + p.w >= W) p.dir *= -1;
     }
+    // Platform squash/stretch animation recovery
+    if (p.squash !== undefined && p.squash < 1) {
+      p.squash += 0.1; // Gradually restore to normal height
+      if (p.squash > 1) p.squash = 1;
+    }
   }
 
   // Camera follows ball upward
@@ -2047,6 +2466,9 @@ function update() {
   if (height > maxHeight) {
     score += Math.floor((height - maxHeight) / 10);
     maxHeight = height;
+    
+    // Check for milestone celebrations
+    checkMilestone(score);
   }
 
   // Spawn new platforms above — spacing scales with jump capability
@@ -2111,11 +2533,14 @@ function update() {
     }
   }
 
-  // Particles
-  for (let i = particles.length - 1; i >= 0; i--) {
-    const p = particles[i];
-    p.x += p.vx; p.y += p.vy; p.life--;
-    if (p.life <= 0) particles.splice(i, 1);
+  // Particles - use pooled particles
+  for (let i = 0; i < particlePool.length; i++) {
+    const p = particlePool[i];
+    if (!p.active) continue;
+    p.x += p.vx; 
+    p.y += p.vy; 
+    p.life--;
+    if (p.life <= 0) p.active = false;
   }
 
   // Update feedback text timer
@@ -2133,7 +2558,7 @@ function update() {
       ball.y = cameraY + H - 20;
       activePower = null;
       playTone(700, 0.2, 'sine', 0.15);
-      spawnParticles(ball.x, ball.y, '#4488ff', 20);
+      spawnParticles(ball.x, ball.y, '#4488ff', 20, 'sparkle');
     } else if (isPreviewMode) {
       // Return to editor from preview
       isPreviewMode = false;
@@ -2143,6 +2568,7 @@ function update() {
       // Community level game over - prompt for name and submit score
       state = STATE.OVER;
       sfxGameOver();
+      addScreenShake(15); // Large shake for game over
       stats.totalDeaths++;
       if (score > stats.bestScore) stats.bestScore = score;
       saveStats();
@@ -2156,6 +2582,7 @@ function update() {
     } else {
       state = STATE.OVER;
       sfxGameOver();
+      addScreenShake(15); // Large shake for game over
       stats.totalDeaths++;
       if (score > stats.bestScore) stats.bestScore = score;
       saveStats();
@@ -2175,11 +2602,66 @@ function update() {
 
 // --- Draw ---
 function draw() {
+  // Animated Background Themes based on score milestones
+  const themes = [
+    { // Theme 0: Default (< 1000)
+      colors: ['#0f3460', '#1a1a2e'],
+      shapeColor: 'rgba(100, 100, 200, 0.1)'
+    },
+    { // Theme 1: Sky (1000+)
+      colors: ['#2c5f8d', '#1a3a52'],
+      shapeColor: 'rgba(200, 200, 255, 0.15)'
+    },
+    { // Theme 2: Sunset (2500+)
+      colors: ['#8b3a62', '#4a1942'],
+      shapeColor: 'rgba(255, 150, 100, 0.15)'
+    },
+    { // Theme 3: Space (5000+)
+      colors: ['#1a0033', '#0a001a'],
+      shapeColor: 'rgba(150, 100, 255, 0.2)'
+    }
+  ];
+  
+  const theme = themes[backgroundTheme];
   const grad = ctx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0, '#0f3460');
-  grad.addColorStop(1, '#1a1a2e');
+  grad.addColorStop(0, theme.colors[0]);
+  grad.addColorStop(1, theme.colors[1]);
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
+  
+  // Draw animated background shapes
+  if (state === STATE.PLAY || state === STATE.DAILY) {
+    ctx.save();
+    for (const shape of backgroundShapes) {
+      ctx.globalAlpha = 0.15;
+      ctx.fillStyle = theme.shapeColor;
+      ctx.save();
+      ctx.translate(shape.x, (shape.y - cameraY * 0.05) % (H + shape.size * 2));
+      ctx.rotate(shape.angle);
+      
+      if (shape.type === 0) {
+        // Circle
+        ctx.beginPath();
+        ctx.arc(0, 0, shape.size, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (shape.type === 1) {
+        // Square
+        ctx.fillRect(-shape.size / 2, -shape.size / 2, shape.size, shape.size);
+      } else {
+        // Triangle
+        ctx.beginPath();
+        ctx.moveTo(0, -shape.size / 2);
+        ctx.lineTo(shape.size / 2, shape.size / 2);
+        ctx.lineTo(-shape.size / 2, shape.size / 2);
+        ctx.closePath();
+        ctx.fill();
+      }
+      
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
 
   // Background stars (parallax)
   ctx.fillStyle = 'rgba(255,255,255,0.3)';
@@ -2190,11 +2672,19 @@ function draw() {
   }
 
   ctx.save();
-  ctx.translate(0, -cameraY);
+  // Apply screen shake
+  ctx.translate(shakeOffset.x, shakeOffset.y - cameraY);
 
-  // Platforms
+  // Render culling bounds with 50px margin for smooth scrolling
+  const cullTop = cameraY - 50;
+  const cullBottom = cameraY + H + 50;
+
+  // Platforms - with expanded culling
   for (const p of platforms) {
     if (p.broken) continue;
+    // Culling check
+    if (p.y + p.h < cullTop || p.y > cullBottom) continue;
+    
     let c1, c2;
     switch (p.type) {
       case 'bouncy':
@@ -2220,7 +2710,13 @@ function draw() {
     // Bouncy platforms pulse in size
     const scaleW = p.type === 'bouncy' ? 1 + Math.sin(p.pulse) * 0.05 : 1;
     const drawX = p.x - (p.w * scaleW - p.w) / 2;
-    roundRect(ctx, drawX, p.y, p.w * scaleW, p.h, 3);
+    
+    // Platform squash/stretch effect
+    const scaleY = p.squash !== undefined ? p.squash : 1;
+    const drawH = p.h * scaleY;
+    const drawY = p.y + (p.h - drawH); // Keep bottom aligned
+    
+    roundRect(ctx, drawX, drawY, p.w * scaleW, drawH, 3);
     ctx.fill();
     // Bouncy spring indicator
     if (p.type === 'bouncy') {
@@ -2261,9 +2757,12 @@ function draw() {
     }
   }
 
-  // Stars
+  // Stars - with expanded culling
   for (const s of stars) {
     if (s.collected) continue;
+    // Culling check
+    if (s.y + s.r < cullTop || s.y - s.r > cullBottom) continue;
+    
     s.pulse += 0.08;
     drawStar(s.x, s.y, s.r * (1 + Math.sin(s.pulse) * 0.2));
   }
@@ -2288,15 +2787,78 @@ function draw() {
     ctx.fillText(POWER_ICONS[pu.type], pu.x, bobY + 4);
   }
 
-  // Particles
+  // Particles - enhanced with different types
   for (const p of particles) {
-    ctx.globalAlpha = p.life / 40;
-    ctx.fillStyle = p.color;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.r * (p.life / 40), 0, Math.PI * 2);
-    ctx.fill();
+    const alpha = p.life / 40;
+    ctx.globalAlpha = alpha;
+    
+    if (p.type === 'star') {
+      // Star particle - 5-pointed star
+      ctx.fillStyle = p.color;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rotation);
+      ctx.beginPath();
+      for (let i = 0; i < 5; i++) {
+        const angle = (i * 4 * Math.PI) / 5;
+        const r = i % 2 === 0 ? p.r * alpha : (p.r * alpha) / 2;
+        ctx.lineTo(Math.cos(angle) * r, Math.sin(angle) * r);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+      p.rotation += p.rotSpeed;
+    } else if (p.type === 'confetti') {
+      // Confetti particle - rotating rectangle
+      ctx.fillStyle = p.color;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rotation);
+      ctx.fillRect(-p.r, -p.r / 2, p.r * 2, p.r);
+      ctx.restore();
+      p.rotation += p.rotSpeed;
+    } else if (p.type === 'sparkle') {
+      // Sparkle particle - cross shape
+      ctx.strokeStyle = p.color;
+      ctx.lineWidth = 2;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rotation);
+      ctx.beginPath();
+      ctx.moveTo(-p.r, 0);
+      ctx.lineTo(p.r, 0);
+      ctx.moveTo(0, -p.r);
+      ctx.lineTo(0, p.r);
+      ctx.stroke();
+      ctx.restore();
+      p.rotation += p.rotSpeed;
+    } else {
+      // Default particle - circle
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r * alpha, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    
+    // Update particle physics
+    p.x += p.vx;
+    p.y += p.vy;
+    p.life--;
   }
+  particles = particles.filter(p => p.life > 0);
   ctx.globalAlpha = 1;
+  
+  // Ball trail effect
+  if (state === STATE.PLAY || state === STATE.DAILY) {
+    for (let i = 0; i < ballTrail.length; i++) {
+      const t = ballTrail[i];
+      const alpha = t.life / 30;
+      ctx.globalAlpha = alpha * 0.3;
+      const skinIdx = SKINS[selectedSkin].unlock() ? selectedSkin : 0;
+      SKINS[skinIdx].draw(ctx, t.x, t.y, ball.r * 0.8);
+    }
+    ctx.globalAlpha = 1;
+  }
 
   // Feedback text (BOOST!, 2X BOUNCE!, etc.)
   if (feedbackText) {
@@ -2396,6 +2958,14 @@ function draw() {
   ctx.font = '12px "Courier New", monospace';
   ctx.fillStyle = muted ? '#e94560' : '#555';
   ctx.fillText(muted ? '🔇 M' : '🔊 M', W / 2, 18);
+  
+  // FPS counter (Shift+F to toggle)
+  if (showFPS) {
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 14px "Courier New", monospace';
+    ctx.fillStyle = currentFPS >= 55 ? '#00ff88' : currentFPS >= 30 ? '#ffd700' : '#e94560';
+    ctx.fillText('FPS: ' + currentFPS, 12, 50);
+  }
   // Active power-up indicator
   if (activePower) {
     ctx.textAlign = 'left';
@@ -2417,6 +2987,27 @@ function draw() {
   if (state === STATE.GALLERY) drawGallery();
   if (state === STATE.LOBBY) drawLobby();
   if (showPostRaceScreen) drawPostRaceScreen();
+  
+  // Milestone celebration flash
+  if (milestoneFlash && milestoneFlash.alpha > 0) {
+    ctx.globalAlpha = milestoneFlash.alpha * 0.5;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+    
+    // Milestone text
+    if (milestoneFlash.alpha > 0.5) {
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 32px "Courier New", monospace';
+      ctx.fillStyle = '#ffd700';
+      ctx.shadowColor = '#ffd700';
+      ctx.shadowBlur = 20;
+      ctx.fillText(milestoneFlash.milestone + '!', W / 2, H / 2);
+      ctx.font = 'bold 18px "Courier New", monospace';
+      ctx.fillText('MILESTONE REACHED', W / 2, H / 2 + 40);
+      ctx.shadowBlur = 0;
+    }
+  }
 
   // Achievement toast
   if (achievementToast && achievementToast.timer > 0) {
@@ -3613,4 +4204,18 @@ function drawGallery() {
   }
 }
 
-(function loop() { update(); draw(); requestAnimationFrame(loop); })();
+// --- Game Loop ---
+(function loop() { 
+  // FPS calculation
+  frameCount++;
+  const now = performance.now();
+  if (now - lastFPSTime >= 1000) {
+    currentFPS = Math.round((frameCount * 1000) / (now - lastFPSTime));
+    frameCount = 0;
+    lastFPSTime = now;
+  }
+  
+  update(); 
+  draw(); 
+  requestAnimationFrame(loop); 
+})();
