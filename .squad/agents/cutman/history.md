@@ -245,3 +245,45 @@
 - **Menu Overlay**: ctx.fillStyle = 'rgba(10, 10, 30, 0.85)' for darkened background with game still visible
 - **Modifier Key Check**: `if (e.key === 'M' && e.shiftKey)` for Shift+M combo to avoid key conflicts
 
+### Pause Bug Deep Fix (Issue #44, PR #44)
+- **Date:** 2026-03-14
+- **Branch:** squad/fix-pause-v2-and-superjump
+- **PR:** #44
+- **What:** Resolved persistent pause menu exit bug + clarified super jump visual feedback
+- **Changes:**
+  - **Pause Fix**: Clear keys[] object on pause entry/exit (lines 860, 870) to prevent stale input state
+  - **Resume Feedback**: Green particle burst (20 particles) on unpause for visual confirmation
+  - **Boost Balance**: Reduced boost power-up multiplier from 2.5x to 1.8x for better gameplay balance
+  - **Visual Clarity**: Added floating text feedback ('BOOST!' red, '2X BOUNCE!' green) on activation
+  - **Text Animation**: Feedback text fades and floats upward over 40 frames with shadow glow
+  - **Particle Polish**: Increased particles (20 vs 8) when boost + bouncy combine
+  - **New State Variable**: Added `feedbackText = { text, x, y, color, timer }` for floating text system
+
+### Architecture Decisions - Pause v2 & Super Jump
+- **Input State Management**: keys[] object can carry stale state across pause/resume cycles — must be explicitly cleared
+- **Visual Feedback Priority**: User confusion about intentional mechanics (boost, bouncy) indicates insufficient visual feedback, not bugs
+- **Multiplier Balancing**: 2.5x boost * 2x bouncy = 5x total velocity was excessive — reduced to 1.8x * 2x = 3.6x for better feel
+- **Feedback Text System**: Floating text with fade-out and upward motion provides non-intrusive gameplay feedback
+- **Particle Density**: Variable particle count (8 normal, 20 boosted) reinforces power difference visually
+
+### Code Patterns - Pause v2 & Super Jump
+- **State Clearing**: `keys = {}` on pause/resume prevents arrow key stickiness and input bugs
+- **Feedback Object**: `feedbackText = { text, x, y, color, timer }` updated in game loop, rendered with fade alpha
+- **Text Animation**: `feedbackText.y -= 0.5` per frame floats text upward, `alpha = Math.min(timer / 20, 1)` for fade
+- **Shadow Glow**: `ctx.shadowColor = color; ctx.shadowBlur = 10` makes text pop against varied backgrounds
+- **Conditional Particles**: `spawnParticles(x, y, color, boostMul > 1 ? 20 : 8)` adjusts intensity based on power-up state
+- **Feedback Placement**: `feedbackText = { ..., y: p.y }` at platform collision point (not ball position) for clarity
+
+### Key File Paths - Pause v2
+- **game.js** (line 32): Added feedbackText state variable
+- **game.js** (lines 860, 870): Clear keys[] on pause entry/resume
+- **game.js** (lines 1998-2018): Boost multiplier reduction + feedback text creation
+- **game.js** (lines 2121-2127): Feedback text timer update + upward float animation
+- **game.js** (lines 2283-2295): Feedback text rendering with fade + shadow glow
+
+### User Feedback Learnings
+- **Pause Bug Persistence**: PR #43 had correct logic, but the bug STILL existed for user — root cause was keys[] stale state, not event handler flow
+- **Intentional vs Bug**: User reported "super jumps" as a potential bug — actual issue was lack of visual clarity for intentional mechanics (boost + bouncy combo)
+- **Balance vs Clarity**: When users question intended mechanics, consider BOTH visual feedback AND numerical balance — reduced 2.5x to 1.8x AND added text feedback
+- **Deep Investigation Required**: When a "fixed" bug reappears, assume the fix addressed a symptom, not the root cause — trace ALL state flows, not just event handlers
+
