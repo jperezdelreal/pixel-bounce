@@ -1175,6 +1175,39 @@ document.onkeydown = e => {
   if (e.key === 'm' && state === STATE.TITLE && !showAchievementOverlay) enterLobby();
   if (e.key === 's' && state === STATE.TITLE && !showAchievementOverlay) startSettings();
   if ((e.key === ' ' || e.key === 'Enter') && !isPlaying()) startGame();
+  // Settings controls
+  if (state === STATE.SETTINGS) {
+    e.preventDefault();
+    const paletteNames = Object.keys(COLOR_PALETTES);
+    if (e.key === '1') {
+      const idx = paletteNames.indexOf(accessibility.colorPalette);
+      accessibility.colorPalette = paletteNames[(idx + 1) % paletteNames.length];
+      PLAYER_COLORS = [getColor('player1'), getColor('player2'), getColor('player3'), getColor('player4')];
+      saveAccessibilitySettings();
+      announceToScreenReader('Color palette: ' + accessibility.colorPalette);
+    }
+    if (e.key === '2') {
+      accessibility.highContrast = !accessibility.highContrast;
+      saveAccessibilitySettings();
+      announceToScreenReader('High contrast: ' + (accessibility.highContrast ? 'on' : 'off'));
+    }
+    if (e.key === '3') {
+      accessibility.reducedMotion = !accessibility.reducedMotion;
+      saveAccessibilitySettings();
+      announceToScreenReader('Reduced motion: ' + (accessibility.reducedMotion ? 'on' : 'off'));
+    }
+    if (e.key === '4') {
+      accessibility.screenReader = !accessibility.screenReader;
+      saveAccessibilitySettings();
+      announceToScreenReader('Screen reader: ' + (accessibility.screenReader ? 'on' : 'off'));
+    }
+    if (e.key === 'Escape') {
+      saveAccessibilitySettings();
+      state = STATE.TITLE;
+      announceToScreenReader('Settings saved');
+    }
+    return;
+  }
   // Lobby controls
   if (state === STATE.LOBBY) {
     if (e.key === 'Escape') {
@@ -3117,11 +3150,66 @@ function draw() {
   }
 }
 
+function drawSettingsScreen() {
+  ctx.fillStyle = 'rgba(10,10,30,0.75)';
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center';
+
+  // Title
+  ctx.fillStyle = getColor('accent');
+  ctx.font = 'bold 28px "Courier New", monospace';
+  ctx.fillText('SETTINGS', W / 2, 60);
+
+  ctx.fillStyle = getColor('textSecondary');
+  ctx.font = '11px "Courier New", monospace';
+  ctx.fillText('Accessibility Options', W / 2, 82);
+
+  const optY = 130;
+  const gap = 70;
+
+  // [1] Color Palette
+  ctx.fillStyle = getColor('text');
+  ctx.font = 'bold 15px "Courier New", monospace';
+  ctx.fillText('[1] Color Palette', W / 2, optY);
+  ctx.fillStyle = getColor('star');
+  ctx.font = '13px "Courier New", monospace';
+  ctx.fillText(accessibility.colorPalette, W / 2, optY + 20);
+
+  // [2] High Contrast
+  ctx.fillStyle = getColor('text');
+  ctx.font = 'bold 15px "Courier New", monospace';
+  ctx.fillText('[2] High Contrast', W / 2, optY + gap);
+  ctx.fillStyle = accessibility.highContrast ? getColor('platformBouncy') : getColor('textSecondary');
+  ctx.font = '13px "Courier New", monospace';
+  ctx.fillText(accessibility.highContrast ? 'ON' : 'OFF', W / 2, optY + gap + 20);
+
+  // [3] Reduced Motion
+  ctx.fillStyle = getColor('text');
+  ctx.font = 'bold 15px "Courier New", monospace';
+  ctx.fillText('[3] Reduced Motion', W / 2, optY + gap * 2);
+  ctx.fillStyle = accessibility.reducedMotion ? getColor('platformBouncy') : getColor('textSecondary');
+  ctx.font = '13px "Courier New", monospace';
+  ctx.fillText(accessibility.reducedMotion ? 'ON' : 'OFF', W / 2, optY + gap * 2 + 20);
+
+  // [4] Screen Reader
+  ctx.fillStyle = getColor('text');
+  ctx.font = 'bold 15px "Courier New", monospace';
+  ctx.fillText('[4] Screen Reader', W / 2, optY + gap * 3);
+  ctx.fillStyle = accessibility.screenReader ? getColor('platformBouncy') : getColor('textSecondary');
+  ctx.font = '13px "Courier New", monospace';
+  ctx.fillText(accessibility.screenReader ? 'ON' : 'OFF', W / 2, optY + gap * 3 + 20);
+
+  // Footer
+  ctx.fillStyle = getColor('textSecondary');
+  ctx.font = '12px "Courier New", monospace';
+  ctx.fillText('[ESC] Save & Return', W / 2, H - 40);
+}
+
 function drawTitleScreen() {
   ctx.fillStyle = 'rgba(10,10,30,0.75)';
   ctx.fillRect(0, 0, W, H);
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#e94560';
+  ctx.fillStyle = getColor('accent');
   ctx.font = 'bold 42px "Courier New", monospace';
   ctx.fillText('PIXEL', W / 2, H / 2 - 50);
   ctx.fillText('BOUNCE', W / 2, H / 2);
