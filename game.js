@@ -164,6 +164,15 @@ let isReady = false;
 let countdownValue = 0;
 let lobbyError = null;
 
+// --- Multiplayer Race State ---
+let isMultiplayerRace = false;
+let otherPlayers = []; // [{ id, name, x, y, score, alive, color }]
+let raceTimer = 60;
+let positionUpdateInterval = null;
+let showPostRaceScreen = false;
+let raceRankings = [];
+let PLAYER_COLORS = ['#e94560', '#00ff88', '#ffd700', '#88ddff'];
+
 // MultiplayerClient - Socket.io wrapper
 class MultiplayerClient {
   constructor() {
@@ -211,6 +220,9 @@ class MultiplayerClient {
     this.socket.off('matched');
     this.socket.off('error');
     this.socket.off('pong');
+    this.socket.off('game-state');
+    this.socket.off('race-end');
+    this.socket.off('rematch-start');
 
     // Add fresh listeners
     this.socket.on('connect', () => {
@@ -245,7 +257,8 @@ class MultiplayerClient {
     this.socket.on('race-start', (data) => {
       console.log('[MP] Race starting!', data);
       countdownValue = 0;
-      // TODO: Start multiplayer race with seed
+      // Start multiplayer race
+      startMultiplayerRace(data);
       playTone(1200, 0.1, 'sine', 0.15);
     });
 
@@ -265,6 +278,19 @@ class MultiplayerClient {
 
     this.socket.on('pong', (data) => {
       serverPing = Date.now() - lastPingTime;
+    });
+
+    this.socket.on('game-state', (data) => {
+      updateGameState(data);
+    });
+
+    this.socket.on('race-end', (data) => {
+      handleRaceEnd(data);
+    });
+
+    this.socket.on('rematch-start', (data) => {
+      console.log('[MP] Rematch starting with seed:', data.seed);
+      startMultiplayerRace(data);
     });
   }
 
@@ -300,6 +326,9 @@ class MultiplayerClient {
       this.socket.off('matched');
       this.socket.off('error');
       this.socket.off('pong');
+      this.socket.off('game-state');
+      this.socket.off('race-end');
+      this.socket.off('rematch-start');
     }
   }
 
@@ -364,8 +393,16 @@ class MultiplayerClient {
       currentRoom = null;
       isReady = false;
       countdownValue = 0;
+      isMultiplayerRace = false;
+      showPostRaceScreen = false;
+      otherPlayers = [];
+      
+      // Clean up race intervals
+      if (positionUpdateInterval) {
+        clearInterval(positionUpdateInterval);
+        positionUpdateInterval = null;
+      }
     });
-    this.cleanup();
   }
 }
 
@@ -874,6 +911,27 @@ document.onkeydown = e => {
         }
       }
     }
+  }
+  // Post-race screen controls
+  if (showPostRaceScreen) {
+    if (e.key === 'r' || e.key === 'R') {
+      // Request rematch
+      if (multiplayerClient && multiplayerClient.connected) {
+        multiplayerClient.socket.emit('rematch');
+        showPostRaceScreen = false;
+        lobbyState = 'in-room';
+      }
+    }
+    if (e.key === 'Escape') {
+      // Leave and return to lobby
+      showPostRaceScreen = false;
+      state = STATE.LOBBY;
+      lobbyState = 'menu';
+      if (multiplayerClient) {
+        multiplayerClient.leaveRoom();
+      }
+    }
+    return;
   }
   // Editor controls
   if (state === STATE.EDITOR) {
@@ -1691,6 +1749,158 @@ function startGame(daily) {
   }
 }
 
+// --- Multiplayer Race Functions ---
+function startMultiplayerRace(data) {
+  ensureAudio();
+  isMultiplayerRace = true;
+  isPreviewMode = false;
+  isDailyMode = false;
+  showPostRaceScreen = false;
+  Object.assign(dailyMods, defaultMods);
+  
+  state = STATE.PLAY;
+  score = 0;
+  cameraY = 0;
+  maxHeight = 0;
+  ball.x = W / 2;
+  ball.y = H - 100;
+  ball.vx = 0;
+  ball.vy = -8;
+  ball.r = 8;
+  platforms = [];
+  stars = [];
+  particles = [];
+  powerups = [];
+  activePower = null;
+  lastPowerUpHeight = 0;
+  runStars = 0;
+  runBounces = 0;
+  runStartTime = Date.now();
+  
+  // Generate platforms from seed
+  if (data.seed) {
+    genPlatformsFromSeed(data.seed);
+  }
+  
+  // Initialize other players
+  otherPlayers = (data.players || [])
+    .filter(p => p.id !== multiplayerClient.socket.id)
+    .map((p, i) => ({
+      id: p.id,
+      name: p.name,
+      x: W / 2,
+      y: H - 100,
+      score: 0,
+      alive: true,
+      color: PLAYER_COLORS[(i + 1) % PLAYER_COLORS.length]
+    }));
+  
+  raceTimer = 60;
+  
+  // Start sending position updates
+  if (positionUpdateInterval) clearInterval(positionUpdateInterval);
+  positionUpdateInterval = setInterval(() => {
+    if (multiplayerClient && multiplayerClient.connected && isMultiplayerRace) {
+      multiplayerClient.socket.emit('player-state', {
+        x: ball.x,
+        y: ball.y,
+        score: score,
+        alive: ball.y < H + 100
+      });
+    }
+  }, 100); // Send updates every 100ms
+}
+
+function updateGameState(data) {
+  if (!isMultiplayerRace) return;
+  
+  // Update race timer
+  raceTimer = data.timer || 0;
+  
+  // Update other players
+  if (data.players) {
+    data.players.forEach(p => {
+      if (p.id === multiplayerClient.socket.id) return; // Skip self
+      
+      let player = otherPlayers.find(op => op.id === p.id);
+      if (!player) {
+        // New player joined mid-race
+        const playerIndex = otherPlayers.length + 1;
+        player = {
+          id: p.id,
+          name: p.name,
+          x: p.x,
+          y: p.y,
+          score: p.score,
+          alive: p.alive,
+          color: PLAYER_COLORS[playerIndex % PLAYER_COLORS.length]
+        };
+        otherPlayers.push(player);
+      } else {
+        // Update existing player
+        player.x = p.x;
+        player.y = p.y;
+        player.score = p.score;
+        player.alive = p.alive;
+      }
+    });
+  }
+}
+
+function handleRaceEnd(data) {
+  console.log('[MP] Race ended', data);
+  isMultiplayerRace = false;
+  showPostRaceScreen = true;
+  raceRankings = data.rankings || [];
+  
+  // Stop position updates
+  if (positionUpdateInterval) {
+    clearInterval(positionUpdateInterval);
+    positionUpdateInterval = null;
+  }
+  
+  // Play end sound
+  playTone(800, 0.2, 'sine', 0.15);
+  setTimeout(() => playTone(1000, 0.3, 'sine', 0.12), 150);
+}
+
+function genPlatformsFromSeed(seed) {
+  platforms = [];
+  stars = [];
+  const rng = seededRandom(seed);
+  
+  // Starting platform
+  platforms.push({ x: W / 2 - 40, y: H - 80, w: 80, h: 8, type: 'static', pulse: 0, broken: false, dir: 0, speed: 0 });
+  
+  let y = H - 180;
+  const platformTypes = ['static', 'static', 'static', 'bouncy', 'breakable'];
+  
+  // Generate 100 platforms
+  for (let i = 0; i < 100; i++) {
+    const x = rng() * (W - 80) + 10;
+    const type = platformTypes[Math.floor(rng() * platformTypes.length)];
+    const w = type === 'breakable' ? 60 : 80;
+    platforms.push({ x, y, w, h: 8, type, pulse: 0, broken: false, dir: 0, speed: 0 });
+    
+    // Spawn stars occasionally
+    if (rng() < 0.3) {
+      const starX = rng() * (W - 40) + 20;
+      const starY = y - 30 - rng() * 40;
+      stars.push({ x: starX, y: starY, r: 6, collected: false });
+    }
+    
+    y -= 80 + rng() * 40;
+  }
+}
+
+function seededRandom(seed) {
+  let s = seed;
+  return function() {
+    s = (s * 9301 + 49297) % 233280;
+    return s / 233280;
+  };
+}
+
 // --- Update ---
 function update() {
   if (state === STATE.EDITOR) {
@@ -2013,6 +2223,27 @@ function draw() {
   SKINS[skinIdx].draw(ctx, ball.x, ball.y, ball.r);
   ctx.shadowBlur = 0;
 
+  // Ghost players (multiplayer)
+  if (isMultiplayerRace) {
+    for (const player of otherPlayers) {
+      if (!player.alive) continue;
+      
+      // Draw ghost ball with 40% opacity
+      ctx.globalAlpha = 0.4;
+      ctx.fillStyle = player.color;
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, ball.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      
+      // Draw player name above ghost
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = player.color;
+      ctx.fillText(player.name, player.x, player.y - ball.r - 8);
+    }
+  }
+
   ctx.restore();
 
   // HUD
@@ -2024,8 +2255,41 @@ function draw() {
   ctx.font = '14px "Courier New", monospace';
   ctx.fillStyle = '#aaa';
   ctx.fillText('Best: ' + highScore, W - 12, 28);
+  
+  // Multiplayer race HUD
+  if (isMultiplayerRace && !showPostRaceScreen) {
+    // Race timer (top-center)
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 24px "Courier New", monospace';
+    ctx.fillStyle = raceTimer <= 10 ? '#e94560' : '#ffd700';
+    ctx.fillText(Math.ceil(raceTimer), W / 2, 35);
+    
+    // Scoreboard (top-right)
+    ctx.textAlign = 'right';
+    ctx.font = '12px sans-serif';
+    let yPos = 50;
+    
+    // Get all players sorted by score
+    const allPlayers = [
+      { 
+        name: playerNameInput || 'You', 
+        score: score, 
+        color: PLAYER_COLORS[0],
+        isLocal: true
+      },
+      ...otherPlayers.map(p => ({ ...p, isLocal: false }))
+    ].sort((a, b) => b.score - a.score);
+    
+    for (const player of allPlayers) {
+      ctx.fillStyle = player.isLocal ? '#fff' : player.color;
+      const prefix = player.isLocal ? '► ' : '  ';
+      ctx.fillText(prefix + player.name + ': ' + player.score, W - 12, yPos);
+      yPos += 16;
+    }
+  }
+  
   // Daily mode indicator
-  if (isDailyMode) {
+  if (isDailyMode && !isMultiplayerRace) {
     ctx.textAlign = 'right';
     ctx.font = 'bold 11px "Courier New", monospace';
     ctx.fillStyle = '#ffd700';
@@ -2055,6 +2319,7 @@ function draw() {
   if (state === STATE.EDITOR) drawEditor();
   if (state === STATE.GALLERY) drawGallery();
   if (state === STATE.LOBBY) drawLobby();
+  if (showPostRaceScreen) drawPostRaceScreen();
 
   // Achievement toast
   if (achievementToast && achievementToast.timer > 0) {
@@ -2912,6 +3177,73 @@ function drawGameOver() {
     ctx.fillStyle = '#aaa';
     ctx.fillText('[ESC or Enter] Close', W / 2, H - 30);
   }
+}
+
+function drawPostRaceScreen() {
+  // Dark overlay
+  ctx.fillStyle = 'rgba(10,10,30,0.95)';
+  ctx.fillRect(0, 0, W, H);
+  
+  // Title
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffd700';
+  ctx.font = 'bold 32px "Courier New", monospace';
+  ctx.fillText('RACE FINISHED', W / 2, H / 2 - 140);
+  
+  // Rankings
+  ctx.font = 'bold 18px "Courier New", monospace';
+  ctx.fillStyle = '#fff';
+  ctx.fillText('RANKINGS', W / 2, H / 2 - 90);
+  
+  let yPos = H / 2 - 50;
+  const rankColors = ['#ffd700', '#c0c0c0', '#cd7f32', '#888'];
+  
+  for (const ranking of raceRankings) {
+    const color = rankColors[ranking.rank - 1] || '#888';
+    
+    // Rank medal/number
+    ctx.font = 'bold 20px "Courier New", monospace';
+    ctx.fillStyle = color;
+    ctx.textAlign = 'right';
+    ctx.fillText(ranking.rank + '.', W / 2 - 100, yPos);
+    
+    // Player name
+    ctx.font = '16px "Courier New", monospace';
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'left';
+    ctx.fillText(ranking.name, W / 2 - 80, yPos);
+    
+    // Score
+    ctx.textAlign = 'right';
+    ctx.fillStyle = color;
+    ctx.fillText(ranking.score, W / 2 + 100, yPos);
+    
+    yPos += 35;
+  }
+  
+  // Buttons
+  const buttonY = H / 2 + 100;
+  
+  // Rematch button
+  ctx.fillStyle = '#16c79a';
+  roundRect(ctx, W / 2 - 170, buttonY, 140, 40, 6);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 14px "Courier New", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('REMATCH [R]', W / 2 - 100, buttonY + 25);
+  
+  // Leave button
+  ctx.fillStyle = '#e94560';
+  roundRect(ctx, W / 2 + 30, buttonY, 140, 40, 6);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.fillText('LEAVE [ESC]', W / 2 + 100, buttonY + 25);
+  
+  // Instructions
+  ctx.font = '11px "Courier New", monospace';
+  ctx.fillStyle = '#aaa';
+  ctx.fillText('Press [R] for rematch or [ESC] to leave', W / 2, buttonY + 70);
 }
 
 function drawStar(x, y, r) {
