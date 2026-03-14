@@ -30,6 +30,12 @@ let editorHistoryIndex = -1;
 let isPreviewMode = false;
 const EDITOR_TOOLS = ['normal', 'bouncy', 'breakable', 'portal', 'star', 'spawn', 'delete'];
 const GRID_SIZE = 20;
+let editorToast = null; // { text, timer, type: 'success'|'error' }
+let showImportModal = false;
+let importInput = '';
+let showValidationModal = false;
+let validationErrors = [];
+let invalidPlatforms = new Set();
 
 // --- Persistent Stats & Skins ---
 const defaultStats = { totalStars: 0, totalGames: 0, totalDeaths: 0, bestScore: 0 };
@@ -294,10 +300,26 @@ document.onkeydown = e => {
   if ((e.key === ' ' || e.key === 'Enter') && !isPlaying()) startGame();
   // Editor controls
   if (state === STATE.EDITOR) {
+    if (showImportModal) {
+      if (e.key === 'Escape') {
+        closeImportModal();
+      }
+      if (e.key === 'Enter') {
+        importLevel(importInput);
+      }
+      return;
+    }
     if (e.key === 'Escape') { state = STATE.TITLE; }
     if (e.key === 'p' || e.key === 'P') previewLevel();
     if (e.key === 'z' && (keys['Control'] || keys['Meta'])) editorUndo();
     if (e.key === 'y' && (keys['Control'] || keys['Meta'])) editorRedo();
+    if (e.key === 's' && (keys['Control'] || keys['Meta'])) {
+      e.preventDefault();
+      exportLevel();
+    }
+    if (e.key === 'x' || e.key === 'X') exportLevel();
+    if (e.key === 'i' || e.key === 'I') openImportModal();
+    if (e.key === 'f' || e.key === 'F') handleFileImport();
     // Tool selection with number keys
     if (e.key >= '1' && e.key <= '7') {
       const toolIdx = parseInt(e.key) - 1;
@@ -396,16 +418,51 @@ function startEditor() {
 function handleEditorClick(e) {
   const rect = canvas.getBoundingClientRect();
   const rawX = ((e.clientX - rect.left) / rect.width) * W;
-  const rawY = ((e.clientY - rect.top) / rect.height) * H + cameraY;
-  const x = Math.round(rawX / GRID_SIZE) * GRID_SIZE;
-  const y = Math.round(rawY / GRID_SIZE) * GRID_SIZE;
+  const rawY = ((e.clientY - rect.top) / rect.height) * H;
+  const x = Math.round((rawX / GRID_SIZE)) * GRID_SIZE;
+  const y = Math.round(((rawY + cameraY) / GRID_SIZE)) * GRID_SIZE;
+
+  // Check for UI button clicks (toolbar at bottom)
+  if (rawY >= H - 90) {
+    // Tool buttons
+    for (let i = 0; i < EDITOR_TOOLS.length; i++) {
+      const btnX = 10 + i * 55;
+      const btnY = H - 70;
+      if (rawX >= btnX && rawX <= btnX + 50 && rawY >= btnY && rawY <= btnY + 30) {
+        editorTool = EDITOR_TOOLS[i];
+        return;
+      }
+    }
+    
+    // Export button (left side, below tools)
+    if (rawX >= 10 && rawX <= 70 && rawY >= H - 32 && rawY <= H - 7) {
+      exportLevel();
+      return;
+    }
+    
+    // Import button (right side, below tools)
+    if (rawX >= 80 && rawX <= 140 && rawY >= H - 32 && rawY <= H - 7) {
+      openImportModal();
+      return;
+    }
+    
+    // File Import button
+    if (rawX >= 150 && rawX <= 210 && rawY >= H - 32 && rawY <= H - 7) {
+      handleFileImport();
+      return;
+    }
+    
+    return; // Don't place objects in toolbar area
+  }
+
+  const worldY = rawY + cameraY;
 
   if (editorTool === 'delete') {
     // Delete platform or star at position
     const platIdx = editorLevel.platforms.findIndex(p =>
-      rawX >= p.x && rawX <= p.x + p.w && rawY >= p.y && rawY <= p.y + p.h);
+      rawX >= p.x && rawX <= p.x + p.w && worldY >= p.y && worldY <= p.y + p.h);
     const starIdx = editorLevel.stars.findIndex(s =>
-      Math.sqrt((rawX - s.x) ** 2 + (rawY - s.y) ** 2) < 10);
+      Math.sqrt((rawX - s.x) ** 2 + (worldY - s.y) ** 2) < 10);
     if (platIdx >= 0) {
       editorSaveState();
       editorLevel.platforms.splice(platIdx, 1);
@@ -456,7 +513,139 @@ function editorRedo() {
   }
 }
 
+function validateLevel(level) {
+  const errors = [];
+  invalidPlatforms.clear();
+  
+  // Check 1: Minimum 3 platforms
+  if (level.platforms.length < 3) {
+    errors.push('Need at least 3 platforms for a viable level');
+  }
+  
+  // Check 2: Maximum 50 platforms
+  if (level.platforms.length > 50) {
+    errors.push(`Too many platforms (${level.platforms.length}/50) — performance limit`);
+  }
+  
+  // Check 3: Maximum 30 stars
+  if (level.stars.length > 30) {
+    errors.push(`Too many stars (${level.stars.length}/30) — performance limit`);
+  }
+  
+  // Check 4: All platforms within bounds
+  for (let i = 0; i < level.platforms.length; i++) {
+    const p = level.platforms[i];
+    if (p.x < 0 || p.x + p.w > W || p.y < 0) {
+      errors.push(`Platform ${i + 1} is out of bounds`);
+      invalidPlatforms.add(i);
+    }
+  }
+  
+  // Check 5: Platform overlaps
+  for (let i = 0; i < level.platforms.length; i++) {
+    for (let j = i + 1; j < level.platforms.length; j++) {
+      const p1 = level.platforms[i];
+      const p2 = level.platforms[j];
+      if (p1.x < p2.x + p2.w && p1.x + p1.w > p2.x &&
+          p1.y < p2.y + p1.h && p1.y + p1.h > p2.y) {
+        errors.push(`Platforms ${i + 1} and ${j + 1} overlap`);
+        invalidPlatforms.add(i);
+        invalidPlatforms.add(j);
+      }
+    }
+  }
+  
+  // Check 6: Spawn point overlaps with platforms
+  if (level.spawn) {
+    for (let i = 0; i < level.platforms.length; i++) {
+      const p = level.platforms[i];
+      const ballR = 8;
+      if (level.spawn.x > p.x - ballR && level.spawn.x < p.x + p.w + ballR &&
+          level.spawn.y > p.y - ballR && level.spawn.y < p.y + p.h + ballR) {
+        errors.push('Spawn point overlaps with a platform');
+        invalidPlatforms.add(i);
+        break;
+      }
+    }
+  }
+  
+  // Check 7: Spawn point is above at least one platform
+  if (level.platforms.length > 0 && level.spawn) {
+    let nearestPlatformY = Infinity;
+    for (const p of level.platforms) {
+      if (p.y > level.spawn.y) {
+        nearestPlatformY = Math.min(nearestPlatformY, p.y);
+      }
+    }
+    if (nearestPlatformY === Infinity) {
+      errors.push('Spawn point must be above at least one platform');
+    } else if (nearestPlatformY - level.spawn.y < 100) {
+      errors.push('Spawn point too close to nearest platform (need 100px clearance)');
+    }
+  }
+  
+  return { valid: errors.length === 0, errors };
+}
+
+function fixLevelIssues() {
+  // Fix 1: Remove platforms over limit
+  if (editorLevel.platforms.length > 50) {
+    editorLevel.platforms = editorLevel.platforms.slice(0, 50);
+  }
+  
+  // Fix 2: Remove stars over limit
+  if (editorLevel.stars.length > 30) {
+    editorLevel.stars = editorLevel.stars.slice(0, 30);
+  }
+  
+  // Fix 3: Clamp platforms to bounds
+  for (const p of editorLevel.platforms) {
+    if (p.x < 0) p.x = 0;
+    if (p.x + p.w > W) p.x = W - p.w;
+    if (p.y < 0) p.y = 0;
+  }
+  
+  // Fix 4: Remove overlapping platforms (keep first, remove duplicates)
+  const toRemove = new Set();
+  for (let i = 0; i < editorLevel.platforms.length; i++) {
+    if (toRemove.has(i)) continue;
+    for (let j = i + 1; j < editorLevel.platforms.length; j++) {
+      if (toRemove.has(j)) continue;
+      const p1 = editorLevel.platforms[i];
+      const p2 = editorLevel.platforms[j];
+      if (p1.x < p2.x + p2.w && p1.x + p1.w > p2.x &&
+          p1.y < p2.y + p1.h && p1.y + p1.h > p2.y) {
+        toRemove.add(j);
+      }
+    }
+  }
+  editorLevel.platforms = editorLevel.platforms.filter((_, i) => !toRemove.has(i));
+  
+  // Fix 5: Move spawn if overlapping
+  for (const p of editorLevel.platforms) {
+    const ballR = 8;
+    if (editorLevel.spawn.x > p.x - ballR && editorLevel.spawn.x < p.x + p.w + ballR &&
+        editorLevel.spawn.y > p.y - ballR && editorLevel.spawn.y < p.y + p.h + ballR) {
+      editorLevel.spawn.y = p.y - 120; // Move spawn 120px above platform
+      break;
+    }
+  }
+  
+  editorSaveState();
+  showValidationModal = false;
+  validationErrors = [];
+  invalidPlatforms.clear();
+}
+
 function previewLevel() {
+  // Validate before preview
+  const validation = validateLevel(editorLevel);
+  if (!validation.valid) {
+    validationErrors = validation.errors;
+    showValidationModal = true;
+    return;
+  }
+  
   if (editorLevel.platforms.length === 0) return; // Need at least one platform
   isPreviewMode = true;
   state = STATE.PLAY;
@@ -477,6 +666,117 @@ function previewLevel() {
   runStars = 0;
   runBounces = 0;
   runStartTime = Date.now();
+}
+
+function exportLevel() {
+  const levelData = {
+    version: 1,
+    platforms: editorLevel.platforms,
+    stars: editorLevel.stars,
+    spawn: editorLevel.spawn,
+    metadata: {
+      author: 'Player',
+      created: new Date().toISOString()
+    }
+  };
+  const json = JSON.stringify(levelData, null, 2);
+  
+  // Copy to clipboard
+  navigator.clipboard.writeText(json).then(() => {
+    showToast('Level copied to clipboard!', 'success');
+  }).catch(() => {
+    showToast('Failed to copy to clipboard', 'error');
+  });
+  
+  // Download as file
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `level-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importLevel(jsonString) {
+  try {
+    const data = JSON.parse(jsonString);
+    
+    // Validate required fields
+    if (!data.platforms || !Array.isArray(data.platforms)) {
+      showToast('Invalid level format: missing platforms', 'error');
+      return false;
+    }
+    if (!data.spawn || typeof data.spawn.x !== 'number' || typeof data.spawn.y !== 'number') {
+      showToast('Invalid level format: missing spawn', 'error');
+      return false;
+    }
+    
+    // Validate stars (optional but must be array if present)
+    const stars = data.stars && Array.isArray(data.stars) ? data.stars : [];
+    
+    // Load level into editor
+    editorSaveState();
+    editorLevel = {
+      platforms: data.platforms.map(p => ({
+        x: p.x || 0,
+        y: p.y || 0,
+        w: p.w || 80,
+        h: p.h || 10,
+        type: p.type || 'static',
+        dir: p.dir || 1,
+        speed: p.speed || 1.5,
+        broken: false,
+        pulse: 0
+      })),
+      stars: stars.map(s => ({
+        x: s.x || 0,
+        y: s.y || 0,
+        r: 5,
+        pulse: 0,
+        collected: false
+      })),
+      spawn: { x: data.spawn.x, y: data.spawn.y }
+    };
+    
+    showToast('Level imported!', 'success');
+    showImportModal = false;
+    importInput = '';
+    return true;
+  } catch (err) {
+    showToast('Invalid level format', 'error');
+    return false;
+  }
+}
+
+function openImportModal() {
+  showImportModal = true;
+  importInput = '';
+}
+
+function closeImportModal() {
+  showImportModal = false;
+  importInput = '';
+}
+
+function handleFileImport() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      importLevel(ev.target.result);
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+}
+
+function showToast(text, type = 'success') {
+  editorToast = { text, timer: 120, type }; // 2 seconds at 60fps
 }
 
 // --- Game Init ---
@@ -988,29 +1288,42 @@ function drawEditor() {
   ctx.translate(0, -cameraY);
 
   // Draw platforms from editor level
-  for (const p of editorLevel.platforms) {
+  for (let i = 0; i < editorLevel.platforms.length; i++) {
+    const p = editorLevel.platforms[i];
+    const isInvalid = invalidPlatforms.has(i);
     let c1, c2;
-    switch (p.type) {
-      case 'bouncy':
-        c1 = '#00ff88'; c2 = '#00cc66';
-        break;
-      case 'breakable':
-        c1 = '#ff8c00'; c2 = '#cc6600';
-        break;
-      case 'portal':
-        c1 = '#b44dff'; c2 = '#8800cc';
-        break;
-      case 'moving':
-        c1 = '#16c79a'; c2 = '#0e8a6d';
-        break;
-      default:
-        c1 = '#e94560'; c2 = '#c81e45';
+    if (isInvalid) {
+      c1 = '#ff3333'; c2 = '#cc0000';
+    } else {
+      switch (p.type) {
+        case 'bouncy':
+          c1 = '#00ff88'; c2 = '#00cc66';
+          break;
+        case 'breakable':
+          c1 = '#ff8c00'; c2 = '#cc6600';
+          break;
+        case 'portal':
+          c1 = '#b44dff'; c2 = '#8800cc';
+          break;
+        case 'moving':
+          c1 = '#16c79a'; c2 = '#0e8a6d';
+          break;
+        default:
+          c1 = '#e94560'; c2 = '#c81e45';
+      }
     }
     const pg = ctx.createLinearGradient(p.x, p.y, p.x, p.y + p.h);
     pg.addColorStop(0, c1); pg.addColorStop(1, c2);
     ctx.fillStyle = pg;
     roundRect(ctx, p.x, p.y, p.w, p.h, 3);
     ctx.fill();
+    // Highlight invalid platforms
+    if (isInvalid) {
+      ctx.strokeStyle = '#ff0000';
+      ctx.lineWidth = 2;
+      roundRect(ctx, p.x, p.y, p.w, p.h, 3);
+      ctx.stroke();
+    }
   }
 
   // Draw stars from editor level
@@ -1097,6 +1410,68 @@ function drawEditor() {
   ctx.font = '11px "Courier New", monospace';
   ctx.fillText(`Platforms: ${editorLevel.platforms.length}`, W - 10, H - 28);
   ctx.fillText(`Stars: ${editorLevel.stars.length}`, W - 10, H - 12);
+
+  // Validation error modal
+  if (showValidationModal) {
+    ctx.fillStyle = 'rgba(10,10,30,0.92)';
+    ctx.fillRect(0, 0, W, H);
+    
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ff3333';
+    ctx.font = 'bold 20px "Courier New", monospace';
+    ctx.fillText('⚠ LEVEL VALIDATION FAILED', W / 2, 50);
+    
+    ctx.font = '10px "Courier New", monospace';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('Fix the following issues before previewing:', W / 2, 72);
+    
+    // Error list
+    ctx.textAlign = 'left';
+    ctx.font = '12px "Courier New", monospace';
+    ctx.fillStyle = '#fff';
+    const startY = 100;
+    const maxErrors = 10;
+    const errorsToShow = validationErrors.slice(0, maxErrors);
+    for (let i = 0; i < errorsToShow.length; i++) {
+      const error = errorsToShow[i];
+      ctx.fillText(`• ${error}`, 30, startY + i * 20);
+    }
+    if (validationErrors.length > maxErrors) {
+      ctx.fillStyle = '#aaa';
+      ctx.fillText(`... and ${validationErrors.length - maxErrors} more`, 30, startY + maxErrors * 20);
+    }
+    
+    // Buttons
+    const btnY = H - 120;
+    
+    // Fix Issues button
+    ctx.fillStyle = 'rgba(0,200,100,0.8)';
+    roundRect(ctx, W / 2 - 150, btnY, 120, 40, 6);
+    ctx.fill();
+    ctx.strokeStyle = '#00ff88';
+    ctx.lineWidth = 2;
+    roundRect(ctx, W / 2 - 150, btnY, 120, 40, 6);
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 14px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('[F] Fix Issues', W / 2 - 90, btnY + 26);
+    
+    // Close button
+    ctx.fillStyle = 'rgba(100,100,100,0.6)';
+    roundRect(ctx, W / 2 + 30, btnY, 120, 40, 6);
+    ctx.fill();
+    ctx.strokeStyle = '#888';
+    ctx.lineWidth = 2;
+    roundRect(ctx, W / 2 + 30, btnY, 120, 40, 6);
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.fillText('[V] Close', W / 2 + 90, btnY + 26);
+    
+    ctx.fillStyle = '#aaa';
+    ctx.font = '10px "Courier New", monospace';
+    ctx.fillText('Auto-fix will remove overlaps, clamp bounds, and trim excess items', W / 2, H - 60);
+  }
 }
 
 function drawGameOver() {
