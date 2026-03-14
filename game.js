@@ -169,6 +169,7 @@ class MultiplayerClient {
   constructor() {
     this.socket = null;
     this.connected = false;
+    this.pingInterval = null;
   }
 
   connect() {
@@ -192,6 +193,26 @@ class MultiplayerClient {
       reconnectionAttempts: 5
     });
 
+    this.setupSocketListeners();
+    this.startPing();
+  }
+
+  setupSocketListeners() {
+    if (!this.socket) return;
+
+    // Remove any existing listeners first to prevent memory leaks
+    this.socket.off('connect');
+    this.socket.off('disconnect');
+    this.socket.off('connect_error');
+    this.socket.off('room-update');
+    this.socket.off('countdown');
+    this.socket.off('race-start');
+    this.socket.off('player-left');
+    this.socket.off('matched');
+    this.socket.off('error');
+    this.socket.off('pong');
+
+    // Add fresh listeners
     this.socket.on('connect', () => {
       console.log('[MP] Connected to server');
       this.connected = true;
@@ -202,6 +223,7 @@ class MultiplayerClient {
       console.log('[MP] Disconnected from server');
       this.connected = false;
       lobbyError = 'Disconnected from server';
+      this.cleanup();
     });
 
     this.socket.on('connect_error', (err) => {
@@ -244,9 +266,13 @@ class MultiplayerClient {
     this.socket.on('pong', (data) => {
       serverPing = Date.now() - lastPingTime;
     });
+  }
 
-    // Start ping loop
-    setInterval(() => {
+  startPing() {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+    }
+    this.pingInterval = setInterval(() => {
       if (this.connected) {
         lastPingTime = Date.now();
         this.socket.emit('ping');
@@ -254,7 +280,31 @@ class MultiplayerClient {
     }, 2000);
   }
 
+  stopPing() {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+  }
+
+  cleanup() {
+    this.stopPing();
+    if (this.socket) {
+      this.socket.off('connect');
+      this.socket.off('disconnect');
+      this.socket.off('connect_error');
+      this.socket.off('room-update');
+      this.socket.off('countdown');
+      this.socket.off('race-start');
+      this.socket.off('player-left');
+      this.socket.off('matched');
+      this.socket.off('error');
+      this.socket.off('pong');
+    }
+  }
+
   disconnect() {
+    this.cleanup();
     if (this.socket) {
       this.socket.disconnect();
       this.socket = null;
@@ -315,6 +365,7 @@ class MultiplayerClient {
       isReady = false;
       countdownValue = 0;
     });
+    this.cleanup();
   }
 }
 

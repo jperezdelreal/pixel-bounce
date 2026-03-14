@@ -11,9 +11,13 @@ const app = express();
 const httpServer = createServer(app);
 
 // CORS configuration for Socket.io
+const ALLOWED_ORIGINS = process.env.CORS_ORIGINS 
+  ? process.env.CORS_ORIGINS.split(',') 
+  : ['http://localhost:8080', 'http://127.0.0.1:8080'];
+
 const io = new Server(httpServer, {
   cors: {
-    origin: '*',
+    origin: ALLOWED_ORIGINS,
     methods: ['GET', 'POST']
   }
 });
