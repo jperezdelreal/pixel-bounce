@@ -45,6 +45,7 @@ let selectedGalleryLevel = null;
 let showRatingModal = false;
 let pendingRating = 0;
 let communityLevelId = null;
+let isPlayingCommunityLevel = false;
 
 // --- Persistent Stats & Skins ---
 const defaultStats = { totalStars: 0, totalGames: 0, totalDeaths: 0, bestScore: 0 };
@@ -198,10 +199,38 @@ const LevelAPI = {
     const levels = this._getLevels();
     const level = levels.find(l => l.id === id);
     if (level) {
-      const totalRating = level.rating * level.ratingCount + stars;
-      level.ratingCount++;
-      level.rating = totalRating / level.ratingCount;
+      const ratedLevels = this._getRatedLevels();
+      
+      if (ratedLevels[id]) {
+        // Already rated - update existing rating
+        const oldRating = ratedLevels[id];
+        const totalRating = level.rating * level.ratingCount - oldRating + stars;
+        level.rating = totalRating / level.ratingCount;
+      } else {
+        // First time rating
+        const totalRating = level.rating * level.ratingCount + stars;
+        level.ratingCount++;
+        level.rating = totalRating / level.ratingCount;
+      }
+      
+      ratedLevels[id] = stars;
+      localStorage.setItem('pixelbounce_rated', JSON.stringify(ratedLevels));
       localStorage.setItem('pixelbounce_gallery', JSON.stringify(levels));
+    }
+  },
+  
+  hasRated(id) {
+    const ratedLevels = this._getRatedLevels();
+    return !!ratedLevels[id];
+  },
+  
+  _getRatedLevels() {
+    try {
+      const data = localStorage.getItem('pixelbounce_rated');
+      return data ? JSON.parse(data) : {};
+    } catch (e) {
+      console.warn('Failed to parse rated levels data:', e);
+      return {};
     }
   },
   
@@ -215,8 +244,13 @@ const LevelAPI = {
   },
   
   _getLevels() {
-    const data = localStorage.getItem('pixelbounce_gallery');
-    return data ? JSON.parse(data) : [];
+    try {
+      const data = localStorage.getItem('pixelbounce_gallery');
+      return data ? JSON.parse(data) : [];
+    } catch (e) {
+      console.warn('Failed to parse gallery data, returning empty array:', e);
+      return [];
+    }
   },
   
   _initDemoLevels() {
@@ -581,13 +615,13 @@ document.onkeydown = e => {
         showRatingModal = false;
         pendingRating = 0;
         communityLevelId = null;
-        state = STATE.TITLE;
+        isPlayingCommunityLevel = false;
       }
       if (e.key === 'Escape') {
         showRatingModal = false;
         pendingRating = 0;
         communityLevelId = null;
-        state = STATE.TITLE;
+        isPlayingCommunityLevel = false;
       }
       return;
     }
@@ -608,8 +642,15 @@ document.onkeydown = e => {
   }
   // Community level game over -> rating
   if (state === STATE.OVER && communityLevelId && e.key === 'r') {
-    showRatingModal = true;
-    pendingRating = 0;
+    if (LevelAPI.hasRated(communityLevelId)) {
+      // Already rated - just go back to gallery
+      state = STATE.GALLERY;
+      isPlayingCommunityLevel = false;
+      communityLevelId = null;
+    } else {
+      showRatingModal = true;
+      pendingRating = 0;
+    }
   }
 };
 document.onkeyup = e => { keys[e.key] = false; };
@@ -628,10 +669,11 @@ canvas.onclick = (e) => {
   } else if (state === STATE.GALLERY) {
     handleGalleryClick(e);
   } else if (state === STATE.OVER && communityLevelId) {
-    // Return to title from community level
+    // Return to gallery from community level
     if (!showRatingModal) {
       communityLevelId = null;
-      state = STATE.TITLE;
+      isPlayingCommunityLevel = false;
+      state = STATE.GALLERY;
     }
   } else if (!isPlaying()) {
     startGame();
@@ -641,10 +683,11 @@ canvas.onclick = (e) => {
 canvas.addEventListener('touchstart', e => {
   e.preventDefault();
   if (state === STATE.OVER && communityLevelId) {
-    // Return to title from community level
+    // Return to gallery from community level
     if (!showRatingModal) {
       communityLevelId = null;
-      state = STATE.TITLE;
+      isPlayingCommunityLevel = false;
+      state = STATE.GALLERY;
     }
     return;
   }
@@ -1062,6 +1105,7 @@ function playCommunityLevel(level) {
   ensureAudio();
   isPreviewMode = false;
   isDailyMode = false;
+  isPlayingCommunityLevel = true;
   communityLevelId = level.id;
   state = STATE.PLAY;
   score = 0;
@@ -1124,8 +1168,18 @@ function renderLevelThumbnail(level) {
   offCtx.fillStyle = '#0f3460';
   offCtx.fillRect(0, 0, thumbW, thumbH);
   
+  // Guard against empty levels
+  if (!level.platforms || level.platforms.length === 0) {
+    offCtx.fillStyle = '#555';
+    offCtx.font = '10px "Courier New", monospace';
+    offCtx.textAlign = 'center';
+    offCtx.fillText('No', thumbW / 2, thumbH / 2 - 5);
+    offCtx.fillText('Preview', thumbW / 2, thumbH / 2 + 8);
+    return offCanvas;
+  }
+  
   // Find bounds
-  const allY = level.platforms.map(p => p.y).concat(level.stars.map(s => s.y));
+  const allY = level.platforms.map(p => p.y).concat((level.stars || []).map(s => s.y));
   const minY = Math.min(...allY, level.spawn.y);
   const maxY = Math.max(...allY, level.spawn.y);
   const rangeY = maxY - minY || 100;
@@ -1387,6 +1441,15 @@ function update() {
       // Return to editor from preview
       isPreviewMode = false;
       state = STATE.EDITOR;
+      ball.r = 8; // reset radius
+    } else if (isPlayingCommunityLevel) {
+      // Community level game over - go to STATE.OVER and offer rating
+      state = STATE.OVER;
+      sfxGameOver();
+      stats.totalDeaths++;
+      if (score > stats.bestScore) stats.bestScore = score;
+      saveStats();
+      checkAchievements();
       ball.r = 8; // reset radius
     } else {
       state = STATE.OVER;
@@ -2016,9 +2079,15 @@ function drawGameOver() {
   ctx.fillStyle = '#aaa';
   ctx.font = '14px "Courier New", monospace';
   if (communityLevelId) {
-    ctx.fillText('Press [R] to rate level', W / 2, H / 2 + 80);
-    ctx.font = '12px "Courier New", monospace';
-    ctx.fillText('or Click / Tap to Return', W / 2, H / 2 + 100);
+    if (LevelAPI.hasRated(communityLevelId)) {
+      ctx.fillText('You already rated this level', W / 2, H / 2 + 80);
+      ctx.font = '12px "Courier New", monospace';
+      ctx.fillText('Click / Tap to Return', W / 2, H / 2 + 100);
+    } else {
+      ctx.fillText('Press [R] to rate level', W / 2, H / 2 + 80);
+      ctx.font = '12px "Courier New", monospace';
+      ctx.fillText('or Click / Tap to Return', W / 2, H / 2 + 100);
+    }
   } else {
     ctx.fillText('Click or Tap to Restart', W / 2, H / 2 + 80);
   }
