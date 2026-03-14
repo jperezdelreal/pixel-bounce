@@ -300,6 +300,17 @@ document.onkeydown = e => {
   if ((e.key === ' ' || e.key === 'Enter') && !isPlaying()) startGame();
   // Editor controls
   if (state === STATE.EDITOR) {
+    if (showValidationModal) {
+      if (e.key === 'f' || e.key === 'F') {
+        fixLevelIssues();
+      }
+      if (e.key === 'v' || e.key === 'V' || e.key === 'Escape') {
+        showValidationModal = false;
+        validationErrors = [];
+        invalidPlatforms.clear();
+      }
+      return;
+    }
     if (showImportModal) {
       if (e.key === 'Escape') {
         closeImportModal();
@@ -421,6 +432,29 @@ function handleEditorClick(e) {
   const rawY = ((e.clientY - rect.top) / rect.height) * H;
   const x = Math.round((rawX / GRID_SIZE)) * GRID_SIZE;
   const y = Math.round(((rawY + cameraY) / GRID_SIZE)) * GRID_SIZE;
+
+  // Check for validation modal button clicks
+  if (showValidationModal) {
+    const btnY = H - 120;
+    
+    // Fix Issues button (W / 2 - 150, btnY, 120, 40)
+    if (rawX >= W / 2 - 150 && rawX <= W / 2 - 30 &&
+        rawY >= btnY && rawY <= btnY + 40) {
+      fixLevelIssues();
+      return;
+    }
+    
+    // Close button (W / 2 + 30, btnY, 120, 40)
+    if (rawX >= W / 2 + 30 && rawX <= W / 2 + 150 &&
+        rawY >= btnY && rawY <= btnY + 40) {
+      showValidationModal = false;
+      validationErrors = [];
+      invalidPlatforms.clear();
+      return;
+    }
+    
+    return; // Don't process other clicks when modal is open
+  }
 
   // Check for UI button clicks (toolbar at bottom)
   if (rawY >= H - 90) {
@@ -669,6 +703,14 @@ function previewLevel() {
 }
 
 function exportLevel() {
+  // Validate before export
+  const validation = validateLevel(editorLevel);
+  if (!validation.valid) {
+    validationErrors = validation.errors;
+    showValidationModal = true;
+    return;
+  }
+  
   const levelData = {
     version: 1,
     platforms: editorLevel.platforms,
