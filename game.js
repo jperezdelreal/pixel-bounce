@@ -47,6 +47,15 @@ let pendingRating = 0;
 let communityLevelId = null;
 let isPlayingCommunityLevel = false;
 
+// --- Leaderboard State ---
+let showLeaderboard = false;
+let leaderboardLevelId = null;
+let leaderboardScores = [];
+let showNamePrompt = false;
+let nameInput = '';
+let currentScore = 0;
+let currentScoreHighlighted = false;
+
 // --- Persistent Stats & Skins ---
 const defaultStats = { totalStars: 0, totalGames: 0, totalDeaths: 0, bestScore: 0 };
 let stats = JSON.parse(localStorage.getItem('pb_stats') || JSON.stringify(defaultStats));
@@ -384,6 +393,60 @@ const LevelAPI = {
   }
 };
 
+// --- ScoreAPI: localStorage-backed leaderboards (REST-ready interface) ---
+const ScoreAPI = {
+  submit(levelId, playerName, score) {
+    if (!levelId || score === undefined || score === null) return;
+    
+    const scores = this._getScores();
+    if (!scores[levelId]) scores[levelId] = [];
+    
+    // Sanitize player name
+    const name = playerName && playerName.trim() !== '' 
+      ? playerName.trim().substring(0, 30) 
+      : 'Anonymous';
+    
+    const entry = {
+      playerName: name,
+      score: parseInt(score, 10),
+      timestamp: new Date().toISOString()
+    };
+    
+    scores[levelId].push(entry);
+    
+    // Keep only top 100 scores per level (performance)
+    scores[levelId].sort((a, b) => b.score - a.score);
+    if (scores[levelId].length > 100) {
+      scores[levelId] = scores[levelId].slice(0, 100);
+    }
+    
+    try {
+      localStorage.setItem('pixelbounce_scores', JSON.stringify(scores));
+      return true;
+    } catch (e) {
+      console.warn('Failed to save score:', e);
+      return false;
+    }
+  },
+  
+  getTop(levelId, limit = 10) {
+    const scores = this._getScores();
+    const levelScores = scores[levelId] || [];
+    return levelScores.slice(0, limit);
+  },
+  
+  _getScores() {
+    try {
+      const data = localStorage.getItem('pixelbounce_scores');
+      return data ? JSON.parse(data) : {};
+    } catch (e) {
+      console.warn('Failed to parse scores data:', e);
+      return {};
+    }
+  }
+};
+
+
 // Initialize demo levels on first visit
 LevelAPI._initDemoLevels();
 
@@ -606,6 +669,14 @@ document.onkeydown = e => {
   }
   // Gallery controls
   if (state === STATE.GALLERY) {
+    if (showLeaderboard) {
+      if (e.key === 'Escape' || e.key === 'Enter') {
+        showLeaderboard = false;
+        leaderboardLevelId = null;
+        leaderboardScores = [];
+      }
+      return;
+    }
     if (showRatingModal) {
       if (e.key >= '1' && e.key <= '5') {
         pendingRating = parseInt(e.key);
@@ -634,22 +705,73 @@ document.onkeydown = e => {
     if (e.key === '1') { gallerySort = 'recent'; galleryLevels = LevelAPI.list(gallerySort); galleryScroll = 0; }
     if (e.key === '2') { gallerySort = 'popular'; galleryLevels = LevelAPI.list(gallerySort); galleryScroll = 0; }
     if (e.key === '3') { gallerySort = 'top-rated'; galleryLevels = LevelAPI.list(gallerySort); galleryScroll = 0; }
+    if (e.key === 'l' || e.key === 'L') {
+      // View leaderboard for current level
+      if (galleryLevels[galleryScroll]) {
+        showLeaderboard = true;
+        leaderboardLevelId = galleryLevels[galleryScroll].id;
+        leaderboardScores = ScoreAPI.getTop(leaderboardLevelId, 10);
+      }
+    }
     if (e.key === 'Enter' || e.key === ' ') {
       if (galleryLevels[galleryScroll]) {
         playCommunityLevel(galleryLevels[galleryScroll]);
       }
     }
   }
-  // Community level game over -> rating
-  if (state === STATE.OVER && communityLevelId && e.key === 'r') {
-    if (LevelAPI.hasRated(communityLevelId)) {
-      // Already rated - just go back to gallery
-      state = STATE.GALLERY;
-      isPlayingCommunityLevel = false;
-      communityLevelId = null;
-    } else {
-      showRatingModal = true;
-      pendingRating = 0;
+  // Community level game over -> name prompt or rating
+  if (state === STATE.OVER && communityLevelId) {
+    if (showNamePrompt) {
+      // Handle name input
+      if (e.key === 'Enter') {
+        // Submit score with name (or Anonymous)
+        const finalName = nameInput.trim() !== '' ? nameInput.trim() : 'Anonymous';
+        ScoreAPI.submit(communityLevelId, finalName, currentScore);
+        showNamePrompt = false;
+        nameInput = '';
+        // Now show leaderboard with highlighted score
+        showLeaderboard = true;
+        leaderboardLevelId = communityLevelId;
+        leaderboardScores = ScoreAPI.getTop(communityLevelId, 10);
+        currentScoreHighlighted = true;
+      } else if (e.key === 'Escape') {
+        // Skip leaderboard submission
+        showNamePrompt = false;
+        nameInput = '';
+        currentScoreHighlighted = false;
+      } else if (e.key === 'Backspace' && nameInput.length > 0) {
+        nameInput = nameInput.slice(0, -1);
+      } else if (e.key.length === 1 && nameInput.length < 20) {
+        // Allow alphanumeric and spaces
+        if (/[a-zA-Z0-9 ]/.test(e.key)) {
+          nameInput += e.key;
+        }
+      }
+      return;
+    }
+    if (showLeaderboard) {
+      if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
+        // Close leaderboard and return to gallery
+        showLeaderboard = false;
+        leaderboardLevelId = null;
+        leaderboardScores = [];
+        currentScoreHighlighted = false;
+        communityLevelId = null;
+        isPlayingCommunityLevel = false;
+        state = STATE.GALLERY;
+      }
+      return;
+    }
+    if (e.key === 'r') {
+      if (LevelAPI.hasRated(communityLevelId)) {
+        // Already rated - just go back to gallery
+        state = STATE.GALLERY;
+        isPlayingCommunityLevel = false;
+        communityLevelId = null;
+      } else {
+        showRatingModal = true;
+        pendingRating = 0;
+      }
     }
   }
 };
@@ -1443,7 +1565,7 @@ function update() {
       state = STATE.EDITOR;
       ball.r = 8; // reset radius
     } else if (isPlayingCommunityLevel) {
-      // Community level game over - go to STATE.OVER and offer rating
+      // Community level game over - prompt for name and submit score
       state = STATE.OVER;
       sfxGameOver();
       stats.totalDeaths++;
@@ -1451,6 +1573,11 @@ function update() {
       saveStats();
       checkAchievements();
       ball.r = 8; // reset radius
+      // Trigger name prompt for leaderboard
+      showNamePrompt = true;
+      nameInput = '';
+      currentScore = score;
+      currentScoreHighlighted = false;
     } else {
       state = STATE.OVER;
       sfxGameOver();
@@ -2124,6 +2251,137 @@ function drawGameOver() {
     ctx.fillStyle = '#aaa';
     ctx.fillText('[ESC] Skip', W / 2, H / 2 + 80);
   }
+  
+  // Name prompt for leaderboard
+  if (showNamePrompt) {
+    ctx.fillStyle = 'rgba(10,10,30,0.95)';
+    ctx.fillRect(0, 0, W, H);
+    
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#16c79a';
+    ctx.font = 'bold 24px "Courier New", monospace';
+    ctx.fillText('SUBMIT SCORE', W / 2, H / 2 - 80);
+    
+    ctx.font = '16px "Courier New", monospace';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('Your Score: ' + currentScore, W / 2, H / 2 - 40);
+    
+    ctx.font = '13px "Courier New", monospace';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('Enter your name:', W / 2, H / 2 - 5);
+    
+    // Input box
+    ctx.fillStyle = 'rgba(22,199,154,0.15)';
+    roundRect(ctx, W / 2 - 150, H / 2 + 10, 300, 40, 6);
+    ctx.fill();
+    ctx.strokeStyle = '#16c79a';
+    ctx.lineWidth = 2;
+    roundRect(ctx, W / 2 - 150, H / 2 + 10, 300, 40, 6);
+    ctx.stroke();
+    
+    // Input text
+    ctx.fillStyle = '#fff';
+    ctx.font = '16px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    const displayName = nameInput || 'Anonymous';
+    ctx.fillText(displayName, W / 2, H / 2 + 36);
+    
+    // Cursor
+    if (nameInput.length > 0 && Math.floor(Date.now() / 500) % 2 === 0) {
+      const cursorX = W / 2 + ctx.measureText(displayName).width / 2 + 3;
+      ctx.fillStyle = '#16c79a';
+      ctx.fillRect(cursorX, H / 2 + 20, 2, 22);
+    }
+    
+    ctx.font = '11px "Courier New", monospace';
+    ctx.fillStyle = '#aaa';
+    ctx.textAlign = 'center';
+    ctx.fillText('[Enter] Submit | [ESC] Skip', W / 2, H / 2 + 90);
+    ctx.fillText('(leave blank for Anonymous)', W / 2, H / 2 + 108);
+  }
+  
+  // Leaderboard modal
+  if (showLeaderboard) {
+    ctx.fillStyle = 'rgba(10,10,30,0.95)';
+    ctx.fillRect(0, 0, W, H);
+    
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 24px "Courier New", monospace';
+    ctx.fillText('🏆 LEADERBOARD', W / 2, 50);
+    
+    if (leaderboardScores.length === 0) {
+      ctx.fillStyle = '#aaa';
+      ctx.font = '14px "Courier New", monospace';
+      ctx.fillText('No scores yet. Be the first!', W / 2, H / 2);
+    } else {
+      const startY = 100;
+      const lineH = 42;
+      
+      // Header
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#888';
+      ctx.font = 'bold 11px "Courier New", monospace';
+      ctx.fillText('RANK', 30, startY - 10);
+      ctx.fillText('PLAYER', 90, startY - 10);
+      ctx.fillText('SCORE', W - 100, startY - 10);
+      ctx.textAlign = 'right';
+      ctx.fillText('DATE', W - 20, startY - 10);
+      
+      // Scores
+      for (let i = 0; i < Math.min(10, leaderboardScores.length); i++) {
+        const entry = leaderboardScores[i];
+        const y = startY + i * lineH;
+        
+        // Check if this is the current player's score (if just submitted)
+        const isCurrentScore = currentScoreHighlighted && 
+                               entry.score === currentScore && 
+                               Math.abs(new Date(entry.timestamp) - new Date()) < 5000; // within 5 seconds
+        
+        // Background for current score
+        if (isCurrentScore) {
+          ctx.fillStyle = 'rgba(255,215,0,0.2)';
+          roundRect(ctx, 15, y - 5, W - 30, lineH - 5, 4);
+          ctx.fill();
+          ctx.strokeStyle = '#ffd700';
+          ctx.lineWidth = 2;
+          roundRect(ctx, 15, y - 5, W - 30, lineH - 5, 4);
+          ctx.stroke();
+        }
+        
+        // Rank
+        ctx.textAlign = 'left';
+        const rankColor = i === 0 ? '#ffd700' : i === 1 ? '#c0c0c0' : i === 2 ? '#cd7f32' : (isCurrentScore ? '#ffd700' : '#aaa');
+        ctx.fillStyle = rankColor;
+        ctx.font = 'bold 18px "Courier New", monospace';
+        ctx.fillText('#' + (i + 1), 30, y + 20);
+        
+        // Player name
+        ctx.font = isCurrentScore ? 'bold 14px "Courier New", monospace' : '14px "Courier New", monospace';
+        ctx.fillStyle = isCurrentScore ? '#fff' : '#ddd';
+        const nameText = entry.playerName.length > 15 ? entry.playerName.substring(0, 15) + '...' : entry.playerName;
+        ctx.fillText(nameText, 90, y + 20);
+        
+        // Score
+        ctx.font = 'bold 16px "Courier New", monospace';
+        ctx.fillStyle = isCurrentScore ? '#ffd700' : '#fff';
+        ctx.fillText(entry.score.toString(), W - 100, y + 20);
+        
+        // Date
+        ctx.textAlign = 'right';
+        ctx.font = '10px "Courier New", monospace';
+        ctx.fillStyle = '#888';
+        const date = new Date(entry.timestamp);
+        const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        ctx.fillText(dateStr, W - 20, y + 20);
+      }
+    }
+    
+    ctx.textAlign = 'center';
+    ctx.font = '12px "Courier New", monospace';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('[ESC or Enter] Close', W / 2, H - 30);
+  }
 }
 
 function drawStar(x, y, r) {
@@ -2264,7 +2522,83 @@ function drawGallery() {
   ctx.fillStyle = '#aaa';
   ctx.font = '11px "Courier New", monospace';
   ctx.textAlign = 'center';
-  ctx.fillText('[Enter] Play | [1-3] Sort | [ESC] Back', W / 2, H - 35);
+  ctx.fillText('[Enter] Play | [L] Leaderboard | [1-3] Sort | [ESC] Back', W / 2, H - 35);
+  
+  // Leaderboard overlay (when viewing from gallery)
+  if (showLeaderboard) {
+    ctx.fillStyle = 'rgba(10,10,30,0.95)';
+    ctx.fillRect(0, 0, W, H);
+    
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 24px "Courier New", monospace';
+    ctx.fillText('🏆 LEADERBOARD', W / 2, 50);
+    
+    // Show level name
+    const level = LevelAPI.get(leaderboardLevelId);
+    if (level) {
+      ctx.font = '14px "Courier New", monospace';
+      ctx.fillStyle = '#16c79a';
+      const nameText = level.metadata.name.length > 30 ? level.metadata.name.substring(0, 30) + '...' : level.metadata.name;
+      ctx.fillText(nameText, W / 2, 80);
+    }
+    
+    if (leaderboardScores.length === 0) {
+      ctx.fillStyle = '#aaa';
+      ctx.font = '14px "Courier New", monospace';
+      ctx.fillText('No scores yet. Be the first!', W / 2, H / 2);
+    } else {
+      const startY = 120;
+      const lineH = 42;
+      
+      // Header
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#888';
+      ctx.font = 'bold 11px "Courier New", monospace';
+      ctx.fillText('RANK', 30, startY - 10);
+      ctx.fillText('PLAYER', 90, startY - 10);
+      ctx.fillText('SCORE', W - 100, startY - 10);
+      ctx.textAlign = 'right';
+      ctx.fillText('DATE', W - 20, startY - 10);
+      
+      // Scores
+      for (let i = 0; i < Math.min(10, leaderboardScores.length); i++) {
+        const entry = leaderboardScores[i];
+        const y = startY + i * lineH;
+        
+        // Rank
+        ctx.textAlign = 'left';
+        const rankColor = i === 0 ? '#ffd700' : i === 1 ? '#c0c0c0' : i === 2 ? '#cd7f32' : '#aaa';
+        ctx.fillStyle = rankColor;
+        ctx.font = 'bold 18px "Courier New", monospace';
+        ctx.fillText('#' + (i + 1), 30, y + 20);
+        
+        // Player name
+        ctx.font = '14px "Courier New", monospace';
+        ctx.fillStyle = '#ddd';
+        const nameText = entry.playerName.length > 15 ? entry.playerName.substring(0, 15) + '...' : entry.playerName;
+        ctx.fillText(nameText, 90, y + 20);
+        
+        // Score
+        ctx.font = 'bold 16px "Courier New", monospace';
+        ctx.fillStyle = '#fff';
+        ctx.fillText(entry.score.toString(), W - 100, y + 20);
+        
+        // Date
+        ctx.textAlign = 'right';
+        ctx.font = '10px "Courier New", monospace';
+        ctx.fillStyle = '#888';
+        const date = new Date(entry.timestamp);
+        const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        ctx.fillText(dateStr, W - 20, y + 20);
+      }
+    }
+    
+    ctx.textAlign = 'center';
+    ctx.font = '12px "Courier New", monospace';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('[ESC or Enter] Close', W / 2, H - 30);
+  }
 }
 
 (function loop() { update(); draw(); requestAnimationFrame(loop); })();
