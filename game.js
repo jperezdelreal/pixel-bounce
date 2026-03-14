@@ -30,6 +30,9 @@ let editorHistoryIndex = -1;
 let isPreviewMode = false;
 const EDITOR_TOOLS = ['normal', 'bouncy', 'breakable', 'portal', 'star', 'spawn', 'delete'];
 const GRID_SIZE = 20;
+let editorToast = null; // { text, timer, type: 'success'|'error' }
+let showImportModal = false;
+let importInput = '';
 
 // --- Persistent Stats & Skins ---
 const defaultStats = { totalStars: 0, totalGames: 0, totalDeaths: 0, bestScore: 0 };
@@ -294,10 +297,26 @@ document.onkeydown = e => {
   if ((e.key === ' ' || e.key === 'Enter') && !isPlaying()) startGame();
   // Editor controls
   if (state === STATE.EDITOR) {
+    if (showImportModal) {
+      if (e.key === 'Escape') {
+        closeImportModal();
+      }
+      if (e.key === 'Enter') {
+        importLevel(importInput);
+      }
+      return;
+    }
     if (e.key === 'Escape') { state = STATE.TITLE; }
     if (e.key === 'p' || e.key === 'P') previewLevel();
     if (e.key === 'z' && (keys['Control'] || keys['Meta'])) editorUndo();
     if (e.key === 'y' && (keys['Control'] || keys['Meta'])) editorRedo();
+    if (e.key === 's' && (keys['Control'] || keys['Meta'])) {
+      e.preventDefault();
+      exportLevel();
+    }
+    if (e.key === 'x' || e.key === 'X') exportLevel();
+    if (e.key === 'i' || e.key === 'I') openImportModal();
+    if (e.key === 'f' || e.key === 'F') handleFileImport();
     // Tool selection with number keys
     if (e.key >= '1' && e.key <= '7') {
       const toolIdx = parseInt(e.key) - 1;
@@ -311,6 +330,14 @@ document.onkeydown = e => {
   }
 };
 document.onkeyup = e => { keys[e.key] = false; };
+
+// Paste handler for import modal
+document.addEventListener('paste', (e) => {
+  if (state === STATE.EDITOR && showImportModal) {
+    e.preventDefault();
+    importInput = e.clipboardData.getData('text');
+  }
+});
 
 canvas.onclick = (e) => {
   if (state === STATE.EDITOR) {
@@ -396,16 +423,51 @@ function startEditor() {
 function handleEditorClick(e) {
   const rect = canvas.getBoundingClientRect();
   const rawX = ((e.clientX - rect.left) / rect.width) * W;
-  const rawY = ((e.clientY - rect.top) / rect.height) * H + cameraY;
-  const x = Math.round(rawX / GRID_SIZE) * GRID_SIZE;
-  const y = Math.round(rawY / GRID_SIZE) * GRID_SIZE;
+  const rawY = ((e.clientY - rect.top) / rect.height) * H;
+  const x = Math.round((rawX / GRID_SIZE)) * GRID_SIZE;
+  const y = Math.round(((rawY + cameraY) / GRID_SIZE)) * GRID_SIZE;
+
+  // Check for UI button clicks (toolbar at bottom)
+  if (rawY >= H - 90) {
+    // Tool buttons
+    for (let i = 0; i < EDITOR_TOOLS.length; i++) {
+      const btnX = 10 + i * 55;
+      const btnY = H - 70;
+      if (rawX >= btnX && rawX <= btnX + 50 && rawY >= btnY && rawY <= btnY + 30) {
+        editorTool = EDITOR_TOOLS[i];
+        return;
+      }
+    }
+    
+    // Export button (left side, below tools)
+    if (rawX >= 10 && rawX <= 70 && rawY >= H - 38 && rawY <= H - 13) {
+      exportLevel();
+      return;
+    }
+    
+    // Import button (right side, below tools)
+    if (rawX >= 80 && rawX <= 140 && rawY >= H - 38 && rawY <= H - 13) {
+      openImportModal();
+      return;
+    }
+    
+    // File Import button
+    if (rawX >= 150 && rawX <= 210 && rawY >= H - 38 && rawY <= H - 13) {
+      handleFileImport();
+      return;
+    }
+    
+    return; // Don't place objects in toolbar area
+  }
+
+  const worldY = rawY + cameraY;
 
   if (editorTool === 'delete') {
     // Delete platform or star at position
     const platIdx = editorLevel.platforms.findIndex(p =>
-      rawX >= p.x && rawX <= p.x + p.w && rawY >= p.y && rawY <= p.y + p.h);
+      rawX >= p.x && rawX <= p.x + p.w && worldY >= p.y && worldY <= p.y + p.h);
     const starIdx = editorLevel.stars.findIndex(s =>
-      Math.sqrt((rawX - s.x) ** 2 + (rawY - s.y) ** 2) < 10);
+      Math.sqrt((rawX - s.x) ** 2 + (worldY - s.y) ** 2) < 10);
     if (platIdx >= 0) {
       editorSaveState();
       editorLevel.platforms.splice(platIdx, 1);
@@ -479,6 +541,117 @@ function previewLevel() {
   runStartTime = Date.now();
 }
 
+function exportLevel() {
+  const levelData = {
+    version: 1,
+    platforms: editorLevel.platforms,
+    stars: editorLevel.stars,
+    spawn: editorLevel.spawn,
+    metadata: {
+      author: 'Player',
+      created: new Date().toISOString()
+    }
+  };
+  const json = JSON.stringify(levelData, null, 2);
+  
+  // Copy to clipboard
+  navigator.clipboard.writeText(json).then(() => {
+    showToast('Level copied to clipboard!', 'success');
+  }).catch(() => {
+    showToast('Failed to copy to clipboard', 'error');
+  });
+  
+  // Download as file
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `level-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importLevel(jsonString) {
+  try {
+    const data = JSON.parse(jsonString);
+    
+    // Validate required fields
+    if (!data.platforms || !Array.isArray(data.platforms)) {
+      showToast('Invalid level format: missing platforms', 'error');
+      return false;
+    }
+    if (!data.spawn || typeof data.spawn.x !== 'number' || typeof data.spawn.y !== 'number') {
+      showToast('Invalid level format: missing spawn', 'error');
+      return false;
+    }
+    
+    // Validate stars (optional but must be array if present)
+    const stars = data.stars && Array.isArray(data.stars) ? data.stars : [];
+    
+    // Load level into editor
+    editorSaveState();
+    editorLevel = {
+      platforms: data.platforms.map(p => ({
+        x: p.x || 0,
+        y: p.y || 0,
+        w: p.w || 80,
+        h: p.h || 10,
+        type: p.type || 'static',
+        dir: p.dir || 1,
+        speed: p.speed || 1.5,
+        broken: false,
+        pulse: 0
+      })),
+      stars: stars.map(s => ({
+        x: s.x || 0,
+        y: s.y || 0,
+        r: 5,
+        pulse: 0,
+        collected: false
+      })),
+      spawn: { x: data.spawn.x, y: data.spawn.y }
+    };
+    
+    showToast('Level imported!', 'success');
+    showImportModal = false;
+    importInput = '';
+    return true;
+  } catch (err) {
+    showToast('Invalid level format', 'error');
+    return false;
+  }
+}
+
+function openImportModal() {
+  showImportModal = true;
+  importInput = '';
+}
+
+function closeImportModal() {
+  showImportModal = false;
+  importInput = '';
+}
+
+function handleFileImport() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      importLevel(ev.target.result);
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+}
+
+function showToast(text, type = 'success') {
+  editorToast = { text, timer: 120, type }; // 2 seconds at 60fps
+}
+
 // --- Game Init ---
 function startGame(daily) {
   ensureAudio();
@@ -530,6 +703,11 @@ function update() {
     // Editor camera control with arrow keys
     if (keys['ArrowUp']) cameraY -= 5;
     if (keys['ArrowDown']) cameraY += 5;
+    // Update toast timer
+    if (editorToast && editorToast.timer > 0) {
+      editorToast.timer--;
+      if (editorToast.timer <= 0) editorToast = null;
+    }
     return;
   }
   if (state !== STATE.PLAY && state !== STATE.DAILY) return;
@@ -1083,8 +1261,46 @@ function drawEditor() {
   ctx.fillStyle = '#fff';
   ctx.font = '11px "Courier New", monospace';
   ctx.textAlign = 'left';
-  ctx.fillText('Click to place | Ctrl+Z/Y: Undo/Redo', 10, H - 28);
-  ctx.fillText('[P] Preview | [ESC] Exit | ↑↓ Scroll', 10, H - 12);
+  ctx.fillText('Click to place | [X] Export | [I] Import | [F] File', 10, H - 38);
+  ctx.fillText('[P] Preview | [ESC] Exit | ↑↓ Scroll', 10, H - 24);
+  
+  // Export/Import buttons
+  // Export button
+  ctx.fillStyle = 'rgba(0,180,100,0.7)';
+  roundRect(ctx, 10, H - 38, 60, 20, 4);
+  ctx.fill();
+  ctx.strokeStyle = '#00ff88';
+  ctx.lineWidth = 1;
+  roundRect(ctx, 10, H - 38, 60, 20, 4);
+  ctx.stroke();
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 10px "Courier New", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('Export', 40, H - 24);
+  
+  // Import button
+  ctx.fillStyle = 'rgba(0,120,200,0.7)';
+  roundRect(ctx, 80, H - 38, 60, 20, 4);
+  ctx.fill();
+  ctx.strokeStyle = '#4488ff';
+  ctx.lineWidth = 1;
+  roundRect(ctx, 80, H - 38, 60, 20, 4);
+  ctx.stroke();
+  ctx.fillStyle = '#fff';
+  ctx.fillText('Import', 110, H - 24);
+  
+  // File Import button
+  ctx.fillStyle = 'rgba(200,120,0,0.7)';
+  roundRect(ctx, 150, H - 38, 60, 20, 4);
+  ctx.fill();
+  ctx.strokeStyle = '#ff8800';
+  ctx.lineWidth = 1;
+  roundRect(ctx, 150, H - 38, 60, 20, 4);
+  ctx.stroke();
+  ctx.fillStyle = '#fff';
+  ctx.fillText('File', 180, H - 24);
+  
+  ctx.textAlign = 'left';
 
   // Current tool indicator
   ctx.textAlign = 'right';
@@ -1097,6 +1313,68 @@ function drawEditor() {
   ctx.font = '11px "Courier New", monospace';
   ctx.fillText(`Platforms: ${editorLevel.platforms.length}`, W - 10, H - 28);
   ctx.fillText(`Stars: ${editorLevel.stars.length}`, W - 10, H - 12);
+  
+  // Import Modal
+  if (showImportModal) {
+    ctx.fillStyle = 'rgba(10,10,30,0.95)';
+    ctx.fillRect(0, 0, W, H);
+    
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#4488ff';
+    ctx.font = 'bold 20px "Courier New", monospace';
+    ctx.fillText('IMPORT LEVEL', W / 2, 60);
+    
+    ctx.font = '11px "Courier New", monospace';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('Paste level JSON below:', W / 2, 90);
+    
+    // Input box
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    roundRect(ctx, 20, 110, W - 40, 200, 6);
+    ctx.fill();
+    ctx.strokeStyle = '#4488ff';
+    ctx.lineWidth = 2;
+    roundRect(ctx, 20, 110, W - 40, 200, 6);
+    ctx.stroke();
+    
+    // Show input text (simple single line for now)
+    ctx.fillStyle = '#fff';
+    ctx.font = '10px "Courier New", monospace';
+    ctx.textAlign = 'left';
+    const displayText = importInput.length > 50 ? importInput.substring(0, 50) + '...' : importInput;
+    ctx.fillText(displayText || '(paste JSON here)', 30, 130);
+    
+    // Instructions
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#aaa';
+    ctx.font = '11px "Courier New", monospace';
+    ctx.fillText('Press [Enter] to import, [ESC] to cancel', W / 2, 340);
+    ctx.fillText('Or use [F] File button to upload .json file', W / 2, 360);
+  }
+  
+  // Toast notification
+  if (editorToast) {
+    const toastY = 20;
+    const toastW = 240;
+    const toastH = 50;
+    const toastX = (W - toastW) / 2;
+    
+    const bgColor = editorToast.type === 'success' ? 'rgba(0,180,100,0.95)' : 'rgba(220,50,50,0.95)';
+    ctx.fillStyle = bgColor;
+    roundRect(ctx, toastX, toastY, toastW, toastH, 8);
+    ctx.fill();
+    
+    const borderColor = editorToast.type === 'success' ? '#00ff88' : '#ff3333';
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = 2;
+    roundRect(ctx, toastX, toastY, toastW, toastH, 8);
+    ctx.stroke();
+    
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 13px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(editorToast.text, W / 2, toastY + 32);
+  }
 }
 
 function drawGameOver() {
