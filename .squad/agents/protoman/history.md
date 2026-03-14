@@ -63,3 +63,70 @@
 - Labels: `squad` (required) + `squad:{agent}` (assignment) + `phase-3` (milestone)
 
 **Next Review:** After Wave 1 completes (issues #21, #22, #23, #25 merged)
+
+### Community Gallery Implementation (Issue #27) — 2025-01-20
+
+**Context:** First backend feature for Pixel Bounce. Project is 100% client-side (GitHub Pages), needed architecture decision for future backend features (leaderboards, multiplayer).
+
+**Architectural Decision:**
+- **Pattern chosen:** Client-side first with LevelAPI abstraction layer
+- **Current implementation:** localStorage-backed (`pixelbounce_gallery` key)
+- **Future-ready:** REST API swap without changing game code
+- **Rationale:** Can't create Supabase/Firebase accounts programmatically from CI, need working feature NOW, must not block on manual setup
+
+**Key Technical Insights:**
+- **LevelAPI abstraction:** `save()`, `list()`, `get()`, `rate()`, `incrementPlays()` — localStorage now, REST later
+- **localStorage limits:** ~5-10MB typical, ~500 levels realistic capacity (sufficient for local gallery)
+- **Demo levels strategy:** 5 built-in levels populate gallery on first visit, showcase platform variety
+- **Thumbnail rendering:** Offscreen canvas (60x80px), maintains 60fps performance
+- **Rating system:** Post-game modal (1-5 stars), stored with level metadata
+- **Sorting:** Recent (timestamp), Popular (plays), Top-rated (rating average)
+
+**Features Delivered:**
+- STATE.GALLERY accessible via C key from title screen
+- Gallery browse UI with level cards (title, author, difficulty, rating, plays)
+- Level thumbnails rendered to mini canvas
+- Play community levels flow (increments play count)
+- Post-game rating prompt (R key, 1-5 stars + Enter)
+- Upload from editor (U key, requires metadata set)
+- 5 demo levels: Skyward Bounce, Glass Gauntlet, Rhythm Rush, Bounce Haven, Portal Maze
+
+**Implementation Stats:**
+- `game.js`: +569 lines (now 2082 total)
+- New state: STATE.GALLERY (value: 5)
+- New global variables: `galleryLevels`, `gallerySort`, `galleryScroll`, `selectedGalleryLevel`, `showRatingModal`, `pendingRating`, `communityLevelId`
+- New functions: `startGallery()`, `handleGalleryClick()`, `playCommunityLevel()`, `uploadToGallery()`, `renderLevelThumbnail()`, `drawGallery()`
+
+**Alternatives Considered:**
+1. **Supabase/Firebase first** (rejected: can't create accounts from CI, blocks delivery)
+2. **GitHub Gists backend** (rejected: not designed for this, rate limits, bad UX)
+3. **localStorage only, no abstraction** (rejected: couples game to storage, expensive refactor later)
+
+**Lessons Learned:**
+- Abstraction layers pay off: LevelAPI decouples game from storage, enables progressive enhancement
+- Client-first is valid: Not every feature needs a backend on day 1
+- Demo data matters: Empty gallery feels dead, 5 demo levels teach users what's possible
+- localStorage is sufficient for Phase 1: Cross-device sync can wait until adoption is validated
+
+**User Experience:**
+- Title screen: Added `[C] Gallery` hint to controls section
+- Editor: Added `[U] Upload` instruction and workflow
+- Game over (community level): Shows `[R] Rate level` prompt instead of restart
+- Gallery: Keyboard navigation (↑↓ scroll, 1-3 sort, Enter play, ESC back)
+- Rating modal: Number keys 1-5 + Enter to submit, ESC to skip
+
+**Backend Integration Path (Deferred to Wave 2):**
+1. Create Supabase/Firebase project (manual, credentials in repo secrets)
+2. Design REST API schema (users, levels, ratings, reports)
+3. Swap `LevelAPI` internals to REST calls (game code unchanged)
+4. Add authentication (GitHub OAuth / anonymous sessions)
+5. Migration tool: export localStorage → backend on first sync
+6. Add moderation (flag inappropriate levels)
+7. Add search & filtering (tags, difficulty, author)
+
+**Decision Document:** `.squad/decisions/inbox/protoman-backend-architecture.md`  
+**PR:** #33  
+**Status:** Merged to main (pending review)  
+
+**Next Architectural Decision:** Multiplayer backend (Issue #27 vs #26) — Socket.io vs WebRTC, Node.js hosting choice
+
