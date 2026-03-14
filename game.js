@@ -38,6 +38,13 @@ const COLOR_PALETTES = {
     platformMoving: '#16c79a',
     platformStatic: '#e94560',
     platformStaticDark: '#c81e45',
+    platformBouncyDark: '#00cc66',
+    platformBreakableDark: '#cc6600',
+    platformPortalDark: '#8800cc',
+    platformMovingDark: '#0e8a6d',
+    portalShimmer: '#e0aaff',
+    spring: '#ffff00',
+    crack: '#553300',
     // UI & Effects
     star: '#ffd700',
     particles: '#ffd700',
@@ -74,6 +81,13 @@ const COLOR_PALETTES = {
     platformMoving: '#88ddff', // Teal → Light blue
     platformStatic: '#e94560',
     platformStaticDark: '#c81e45',
+    platformBouncyDark: '#2266cc',
+    platformBreakableDark: '#cc6600',
+    platformPortalDark: '#8800cc',
+    platformMovingDark: '#5599cc',
+    portalShimmer: '#d088ff',
+    spring: '#ffff00',
+    crack: '#553300',
     star: '#ffd700',
     particles: '#ffd700',
     shield: '#4488ff',
@@ -108,6 +122,13 @@ const COLOR_PALETTES = {
     platformMoving: '#00ccff', // Teal → Cyan
     platformStatic: '#ffa500', // Red → Orange
     platformStaticDark: '#cc8400',
+    platformBouncyDark: '#0066cc',
+    platformBreakableDark: '#cc6600',
+    platformPortalDark: '#8800cc',
+    platformMovingDark: '#009acc',
+    portalShimmer: '#d088ff',
+    spring: '#ffff00',
+    crack: '#553300',
     star: '#ffd700',
     particles: '#ffd700',
     shield: '#4488ff',
@@ -142,6 +163,13 @@ const COLOR_PALETTES = {
     platformMoving: '#16c79a',
     platformStatic: '#e94560',
     platformStaticDark: '#c81e45',
+    platformBouncyDark: '#00cc66',
+    platformBreakableDark: '#cc6600',
+    platformPortalDark: '#8800cc',
+    platformMovingDark: '#0e8a6d',
+    portalShimmer: '#e0aaff',
+    spring: '#ffff00',
+    crack: '#553300',
     star: '#ff88cc', // Gold → Pink
     particles: '#ff88cc', // Gold → Pink
     shield: '#ff6699', // Blue → Pink
@@ -212,7 +240,6 @@ let score = 0;
 let highScore = parseInt(localStorage.getItem('pb_hi') || '0', 10);
 let stars = [];
 let platforms = [];
-let particles = [];
 let powerups = [];
 let activePower = null; // { type, timer }
 let cameraY = 0;
@@ -223,7 +250,34 @@ let feedbackText = null; // { text, x, y, color, timer }
 const MAX_PARTICLES = 200;
 let particlePool = [];
 for (let i = 0; i < MAX_PARTICLES; i++) {
-  particlePool.push({ x: 0, y: 0, vx: 0, vy: 0, life: 0, color: '#fff', r: 2, active: false });
+  particlePool.push({ x: 0, y: 0, vx: 0, vy: 0, life: 0, color: '#fff', r: 2, active: false, type: 'default', rotation: 0, rotSpeed: 0 });
+}
+function resetParticlePool() {
+  for (let i = 0; i < particlePool.length; i++) particlePool[i].active = false;
+}
+
+// --- Performance Optimization: Offscreen Canvas Caching ---
+const bgCanvas = document.createElement('canvas');
+bgCanvas.width = W * dpr;
+bgCanvas.height = H * dpr;
+const bgCtx = bgCanvas.getContext('2d');
+bgCtx.scale(dpr, dpr);
+let bgCacheDirty = true;
+
+function cacheBgCanvas() {
+  const grad = bgCtx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#0f3460');
+  grad.addColorStop(1, '#1a1a2e');
+  bgCtx.fillStyle = grad;
+  bgCtx.fillRect(0, 0, W, H);
+  // Pre-render static background stars
+  bgCtx.fillStyle = 'rgba(255,255,255,0.3)';
+  for (let i = 0; i < 40; i++) {
+    const sx = (i * 97 + 13) % W;
+    const sy = (i * 131 + 7) % H;
+    bgCtx.fillRect(sx, sy, 1.5, 1.5);
+  }
+  bgCacheDirty = false;
 }
 
 // --- Performance Optimization: FPS Counter ---
@@ -1079,7 +1133,7 @@ document.onkeydown = e => {
       state = pausedFromState;
       pausedFromState = null;
       keys = {}; // Clear key states when resuming
-      spawnParticles(W / 2, H / 2, '#00ff88', 20); // Visual feedback for resume
+      spawnParticles(W / 2, H / 2, getColor('platformBouncy'), accessibility.reducedMotion ? 0 : 20); // Visual feedback for resume
       return;
     }
     if (e.key === 'm' || e.key === 'M') {
@@ -1505,6 +1559,7 @@ function spawnParticles(x, y, color, count, type = 'default') {
 
 // Screen shake effect
 function addScreenShake(intensity) {
+  if (accessibility.reducedMotion) return; // Skip shake if reduced motion is enabled
   shakeOffset.x = (Math.random() - 0.5) * intensity;
   shakeOffset.y = (Math.random() - 0.5) * intensity;
   shakeOffset.decay = intensity / 15; // Decay over 10-20 frames
@@ -1538,22 +1593,26 @@ function triggerMilestoneCelebration(milestone) {
   // Full-screen flash
   milestoneFlash = { alpha: 1.0, milestone };
   
-  // Special particles - confetti explosion
-  for (let i = 0; i < 50; i++) {
-    const angle = (Math.PI * 2 * i) / 50;
-    const speed = 8 + Math.random() * 4;
-    particles.push({
-      x: W / 2,
-      y: H / 2,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed,
-      life: 60 + Math.random() * 20,
-      color: ['#ffd700', '#ff4444', '#00ff88', '#4488ff', '#ff00ff'][Math.floor(Math.random() * 5)],
-      r: 3 + Math.random() * 2,
-      type: 'confetti',
-      rotation: Math.random() * Math.PI * 2,
-      rotSpeed: (Math.random() - 0.5) * 0.5
-    });
+  // Special particles - confetti explosion (use pool)
+  let spawned = 0;
+  for (let pi = 0; pi < particlePool.length && spawned < 50; pi++) {
+    if (!particlePool[pi].active) {
+      const p = particlePool[pi];
+      const angle = (Math.PI * 2 * spawned) / 50;
+      const speed = 8 + Math.random() * 4;
+      p.x = W / 2;
+      p.y = H / 2;
+      p.vx = Math.cos(angle) * speed;
+      p.vy = Math.sin(angle) * speed;
+      p.life = 60 + Math.random() * 20;
+      p.color = ['#ffd700', '#ff4444', '#00ff88', '#4488ff', '#ff00ff'][Math.floor(Math.random() * 5)];
+      p.r = 3 + Math.random() * 2;
+      p.type = 'confetti';
+      p.rotation = Math.random() * Math.PI * 2;
+      p.rotSpeed = (Math.random() - 0.5) * 0.5;
+      p.active = true;
+      spawned++;
+    }
   }
   
   // Update background theme
@@ -1754,7 +1813,7 @@ function previewLevel() {
   // Copy editor level to game state
   platforms = JSON.parse(JSON.stringify(editorLevel.platforms));
   stars = JSON.parse(JSON.stringify(editorLevel.stars));
-  particles = [];
+  resetParticlePool();
   powerups = [];
   activePower = null;
   runStars = 0;
@@ -2015,7 +2074,7 @@ function playCommunityLevel(level) {
   ball.r = 8;
   platforms = JSON.parse(JSON.stringify(level.platforms));
   stars = JSON.parse(JSON.stringify(level.stars));
-  particles = [];
+  resetParticlePool();
   powerups = [];
   activePower = null;
   runStars = 0;
@@ -2145,7 +2204,7 @@ function startGame(daily) {
   ball.r = dailyMods.ballRadius;
   platforms = [];
   stars = [];
-  particles = [];
+  resetParticlePool();
   powerups = [];
   activePower = null;
   lastPowerUpHeight = 0;
@@ -2193,7 +2252,7 @@ function startMultiplayerRace(data) {
   ball.r = 8;
   platforms = [];
   stars = [];
-  particles = [];
+  resetParticlePool();
   powerups = [];
   activePower = null;
   lastPowerUpHeight = 0;
@@ -2399,8 +2458,8 @@ function update() {
         if (boostMul > 1) {
           activePower = null;
           // Visual feedback for boost activation
-          spawnParticles(ball.x, p.y, '#ff4444', 15, 'sparkle');
-          feedbackText = { text: 'BOOST!', x: ball.x, y: p.y, color: '#ff4444', timer: 40 };
+          spawnParticles(ball.x, p.y, getColor('boost'), accessibility.reducedMotion ? 0 : 15, 'sparkle');
+          feedbackText = { text: 'BOOST!', x: ball.x, y: p.y, color: getColor('boost'), timer: 40 };
           addScreenShake(8); // Medium shake for power-up
         }
         
@@ -2410,31 +2469,31 @@ function update() {
         if (p.type === 'bouncy') {
           ball.vy = baseVy * 2 * boostMul;
           sfxBouncy();
-          spawnParticles(ball.x, p.y, '#00FF7F', boostMul > 1 ? 20 : 8, 'star'); // More particles if boosted
+          spawnParticles(ball.x, p.y, getColor('platformBouncy'), accessibility.reducedMotion ? 0 : (boostMul > 1 ? 20 : 8), 'star');
           // Extra visual feedback for bouncy platforms
           if (boostMul === 1) {
             // Non-boosted bouncy: show "2X BOUNCE!" text
-            feedbackText = { text: '2X BOUNCE!', x: ball.x, y: p.y, color: '#00FF7F', timer: 40 };
+            feedbackText = { text: '2X BOUNCE!', x: ball.x, y: p.y, color: getColor('platformBouncy'), timer: 40 };
           }
           addScreenShake(6); // Small shake for bouncy
         } else if (p.type === 'breakable') {
           ball.vy = baseVy * boostMul;
           p.broken = true;
           sfxBreakable();
-          spawnParticles(ball.x, p.y, '#ff8c00', 12, 'confetti');
+          spawnParticles(ball.x, p.y, getColor('platformBreakable'), accessibility.reducedMotion ? 0 : 12, 'confetti');
           addScreenShake(4); // Small shake for breakable
         } else if (p.type === 'portal') {
           const highest = Math.min(...platforms.filter(q => !q.broken && q !== p).map(q => q.y));
           ball.y = highest - ball.r - 20;
           ball.vy = baseVy * boostMul;
           sfxPortal();
-          spawnParticles(ball.x, p.y, '#b44dff', 15, 'sparkle');
+          spawnParticles(ball.x, p.y, getColor('platformPortal'), accessibility.reducedMotion ? 0 : 15, 'sparkle');
           addScreenShake(5); // Small shake for portal
-          spawnParticles(ball.x, ball.y, '#b44dff', 10);
+          spawnParticles(ball.x, ball.y, getColor('platformPortal'), accessibility.reducedMotion ? 0 : 10);
         } else {
           ball.vy = baseVy * boostMul;
           sfxBounce(ball.vy);
-          spawnParticles(ball.x, p.y, '#e94560', 5);
+          spawnParticles(ball.x, p.y, getColor('platformStatic'), accessibility.reducedMotion ? 0 : 5);
           addScreenShake(3); // Small shake for normal bounce
         }
         ball.y = p.type === 'portal' ? ball.y : p.y - ball.r;
@@ -2513,7 +2572,7 @@ function update() {
       runStars++;
       stats.totalStars++;
       sfxStar();
-      spawnParticles(s.x, s.y, '#ffd700', 10);
+      spawnParticles(s.x, s.y, getColor('star'), accessibility.reducedMotion ? 0 : 10);
     }
   }
 
@@ -2529,7 +2588,7 @@ function update() {
         activePower = { type: pu.type, timer: -1 }; // single-use
       }
       sfxPowerUp();
-      spawnParticles(pu.x, pu.y, POWER_COLORS[pu.type], 12);
+      spawnParticles(pu.x, pu.y, POWER_COLORS[pu.type], accessibility.reducedMotion ? 0 : 12);
     }
   }
 
@@ -2539,6 +2598,7 @@ function update() {
     if (!p.active) continue;
     p.x += p.vx; 
     p.y += p.vy; 
+    p.rotation += p.rotSpeed;
     p.life--;
     if (p.life <= 0) p.active = false;
   }
@@ -2558,7 +2618,7 @@ function update() {
       ball.y = cameraY + H - 20;
       activePower = null;
       playTone(700, 0.2, 'sine', 0.15);
-      spawnParticles(ball.x, ball.y, '#4488ff', 20, 'sparkle');
+      spawnParticles(ball.x, ball.y, getColor('shield'), accessibility.reducedMotion ? 0 : 20, 'sparkle');
     } else if (isPreviewMode) {
       // Return to editor from preview
       isPreviewMode = false;
@@ -2602,73 +2662,77 @@ function update() {
 
 // --- Draw ---
 function draw() {
-  // Animated Background Themes based on score milestones
-  const themes = [
-    { // Theme 0: Default (< 1000)
-      colors: ['#0f3460', '#1a1a2e'],
-      shapeColor: 'rgba(100, 100, 200, 0.1)'
-    },
-    { // Theme 1: Sky (1000+)
-      colors: ['#2c5f8d', '#1a3a52'],
-      shapeColor: 'rgba(200, 200, 255, 0.15)'
-    },
-    { // Theme 2: Sunset (2500+)
-      colors: ['#8b3a62', '#4a1942'],
-      shapeColor: 'rgba(255, 150, 100, 0.15)'
-    },
-    { // Theme 3: Space (5000+)
-      colors: ['#1a0033', '#0a001a'],
-      shapeColor: 'rgba(150, 100, 255, 0.2)'
-    }
-  ];
-  
-  const theme = themes[backgroundTheme];
-  const grad = ctx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0, theme.colors[0]);
-  grad.addColorStop(1, theme.colors[1]);
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, H);
-  
-  // Draw animated background shapes
-  if (state === STATE.PLAY || state === STATE.DAILY) {
-    ctx.save();
-    for (const shape of backgroundShapes) {
-      ctx.globalAlpha = 0.15;
-      ctx.fillStyle = theme.shapeColor;
-      ctx.save();
-      ctx.translate(shape.x, (shape.y - cameraY * 0.05) % (H + shape.size * 2));
-      ctx.rotate(shape.angle);
-      
-      if (shape.type === 0) {
-        // Circle
-        ctx.beginPath();
-        ctx.arc(0, 0, shape.size, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (shape.type === 1) {
-        // Square
-        ctx.fillRect(-shape.size / 2, -shape.size / 2, shape.size, shape.size);
-      } else {
-        // Triangle
-        ctx.beginPath();
-        ctx.moveTo(0, -shape.size / 2);
-        ctx.lineTo(shape.size / 2, shape.size / 2);
-        ctx.lineTo(-shape.size / 2, shape.size / 2);
-        ctx.closePath();
-        ctx.fill();
+  if (bgCacheDirty) cacheBgCanvas();
+
+  // Use cached background for static screens (title, gallery)
+  if (state === STATE.TITLE || state === STATE.GALLERY) {
+    ctx.drawImage(bgCanvas, 0, 0, W, H);
+  } else {
+    // Animated Background Themes based on score milestones
+    const themes = [
+      { // Theme 0: Default (< 1000)
+        colors: ['#0f3460', '#1a1a2e'],
+        shapeColor: 'rgba(100, 100, 200, 0.1)'
+      },
+      { // Theme 1: Sky (1000+)
+        colors: ['#2c5f8d', '#1a3a52'],
+        shapeColor: 'rgba(200, 200, 255, 0.15)'
+      },
+      { // Theme 2: Sunset (2500+)
+        colors: ['#8b3a62', '#4a1942'],
+        shapeColor: 'rgba(255, 150, 100, 0.15)'
+      },
+      { // Theme 3: Space (5000+)
+        colors: ['#1a0033', '#0a001a'],
+        shapeColor: 'rgba(150, 100, 255, 0.2)'
       }
-      
+    ];
+    
+    const theme = themes[backgroundTheme];
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, theme.colors[0]);
+    grad.addColorStop(1, theme.colors[1]);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+    
+    // Draw animated background shapes
+    if (state === STATE.PLAY || state === STATE.DAILY) {
+      ctx.save();
+      for (const shape of backgroundShapes) {
+        ctx.globalAlpha = 0.15;
+        ctx.fillStyle = theme.shapeColor;
+        ctx.save();
+        ctx.translate(shape.x, (shape.y - cameraY * 0.05) % (H + shape.size * 2));
+        ctx.rotate(shape.angle);
+        
+        if (shape.type === 0) {
+          ctx.beginPath();
+          ctx.arc(0, 0, shape.size, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (shape.type === 1) {
+          ctx.fillRect(-shape.size / 2, -shape.size / 2, shape.size, shape.size);
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(0, -shape.size / 2);
+          ctx.lineTo(shape.size / 2, shape.size / 2);
+          ctx.lineTo(-shape.size / 2, shape.size / 2);
+          ctx.closePath();
+          ctx.fill();
+        }
+        
+        ctx.restore();
+      }
+      ctx.globalAlpha = 1;
       ctx.restore();
     }
-    ctx.globalAlpha = 1;
-    ctx.restore();
-  }
 
-  // Background stars (parallax)
-  ctx.fillStyle = 'rgba(255,255,255,0.3)';
-  for (let i = 0; i < 40; i++) {
-    const sx = (i * 97 + 13) % W;
-    const sy = ((i * 131 + 7 - cameraY * 0.1) % H + H) % H;
-    ctx.fillRect(sx, sy, 1.5, 1.5);
+    // Background stars (parallax)
+    ctx.fillStyle = getColor('text') + '4D';
+    for (let i = 0; i < 40; i++) {
+      const sx = (i * 97 + 13) % W;
+      const sy = ((i * 131 + 7 - cameraY * 0.1) % H + H) % H;
+      ctx.fillRect(sx, sy, 1.5, 1.5);
+    }
   }
 
   ctx.save();
@@ -2688,21 +2752,21 @@ function draw() {
     let c1, c2;
     switch (p.type) {
       case 'bouncy':
-        p.pulse += 0.06;
-        c1 = '#00FF7F'; c2 = '#00D060'; // Bright spring green
+        if (!accessibility.reducedMotion) p.pulse += 0.06;
+        c1 = getColor('platformBouncy'); c2 = getColor('platformBouncyDark');
         break;
       case 'breakable':
-        c1 = '#ff8c00'; c2 = '#cc6600';
+        c1 = getColor('platformBreakable'); c2 = getColor('platformBreakableDark');
         break;
       case 'portal':
-        p.pulse += 0.08;
-        c1 = '#b44dff'; c2 = '#8800cc';
+        if (!accessibility.reducedMotion) p.pulse += 0.08;
+        c1 = getColor('platformPortal'); c2 = getColor('platformPortalDark');
         break;
       case 'moving':
-        c1 = '#16c79a'; c2 = '#0e8a6d';
+        c1 = getColor('platformMoving'); c2 = getColor('platformMovingDark');
         break;
       default:
-        c1 = '#e94560'; c2 = '#c81e45';
+        c1 = getColor('platformStatic'); c2 = getColor('platformStaticDark');
     }
     const pg = ctx.createLinearGradient(p.x, p.y, p.x, p.y + p.h);
     pg.addColorStop(0, c1); pg.addColorStop(1, c2);
@@ -2720,7 +2784,7 @@ function draw() {
     ctx.fill();
     // Bouncy spring indicator
     if (p.type === 'bouncy') {
-      ctx.strokeStyle = '#FFFF00'; // Bright yellow spring
+      ctx.strokeStyle = getColor('spring');
       ctx.lineWidth = 2;
       ctx.lineCap = 'round';
       ctx.beginPath();
@@ -2738,7 +2802,7 @@ function draw() {
     }
     // Breakable crack lines
     if (p.type === 'breakable') {
-      ctx.strokeStyle = '#553300';
+      ctx.strokeStyle = getColor('crack');
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(p.x + p.w * 0.3, p.y);
@@ -2750,7 +2814,7 @@ function draw() {
     // Portal shimmer
     if (p.type === 'portal') {
       ctx.globalAlpha = 0.3 + Math.sin(p.pulse) * 0.2;
-      ctx.fillStyle = '#e0aaff';
+      ctx.fillStyle = getColor('portalShimmer');
       roundRect(ctx, p.x, p.y, p.w, p.h, 3);
       ctx.fill();
       ctx.globalAlpha = 1;
@@ -2763,15 +2827,15 @@ function draw() {
     // Culling check
     if (s.y + s.r < cullTop || s.y - s.r > cullBottom) continue;
     
-    s.pulse += 0.08;
+    if (!accessibility.reducedMotion) s.pulse += 0.08;
     drawStar(s.x, s.y, s.r * (1 + Math.sin(s.pulse) * 0.2));
   }
 
   // Power-ups
   for (const pu of powerups) {
     if (pu.collected) continue;
-    pu.pulse += 0.05;
-    const bobY = pu.y + Math.sin(pu.pulse) * 4;
+   if (!accessibility.reducedMotion) pu.pulse += 0.05;
+    const bobY = pu.y + (accessibility.reducedMotion ? 0 : Math.sin(pu.pulse) * 4);
     const color = POWER_COLORS[pu.type];
     // Glow
     ctx.shadowColor = color;
@@ -2787,8 +2851,10 @@ function draw() {
     ctx.fillText(POWER_ICONS[pu.type], pu.x, bobY + 4);
   }
 
-  // Particles - enhanced with different types
-  for (const p of particles) {
+  // Particles - render from pool, skip inactive
+  for (let pi = 0; pi < particlePool.length; pi++) {
+    const p = particlePool[pi];
+    if (!p.active) continue;
     const alpha = p.life / 40;
     ctx.globalAlpha = alpha;
     
@@ -2807,7 +2873,6 @@ function draw() {
       ctx.closePath();
       ctx.fill();
       ctx.restore();
-      p.rotation += p.rotSpeed;
     } else if (p.type === 'confetti') {
       // Confetti particle - rotating rectangle
       ctx.fillStyle = p.color;
@@ -2816,7 +2881,6 @@ function draw() {
       ctx.rotate(p.rotation);
       ctx.fillRect(-p.r, -p.r / 2, p.r * 2, p.r);
       ctx.restore();
-      p.rotation += p.rotSpeed;
     } else if (p.type === 'sparkle') {
       // Sparkle particle - cross shape
       ctx.strokeStyle = p.color;
@@ -2831,7 +2895,6 @@ function draw() {
       ctx.lineTo(0, p.r);
       ctx.stroke();
       ctx.restore();
-      p.rotation += p.rotSpeed;
     } else {
       // Default particle - circle
       ctx.fillStyle = p.color;
@@ -2839,13 +2902,7 @@ function draw() {
       ctx.arc(p.x, p.y, p.r * alpha, 0, Math.PI * 2);
       ctx.fill();
     }
-    
-    // Update particle physics
-    p.x += p.vx;
-    p.y += p.vy;
-    p.life--;
   }
-  particles = particles.filter(p => p.life > 0);
   ctx.globalAlpha = 1;
   
   // Ball trail effect
@@ -3417,19 +3474,19 @@ function drawEditor() {
     let c1, c2;
     switch (p.type) {
       case 'bouncy':
-        c1 = '#00ff88'; c2 = '#00cc66';
+        c1 = getColor('platformBouncy'); c2 = getColor('platformBouncyDark');
         break;
       case 'breakable':
-        c1 = '#ff8c00'; c2 = '#cc6600';
+        c1 = getColor('platformBreakable'); c2 = getColor('platformBreakableDark');
         break;
       case 'portal':
-        c1 = '#b44dff'; c2 = '#8800cc';
+        c1 = getColor('platformPortal'); c2 = getColor('platformPortalDark');
         break;
       case 'moving':
-        c1 = '#16c79a'; c2 = '#0e8a6d';
+        c1 = getColor('platformMoving'); c2 = getColor('platformMovingDark');
         break;
       default:
-        c1 = '#e94560'; c2 = '#c81e45';
+        c1 = getColor('platformStatic'); c2 = getColor('platformStaticDark');
     }
     const pg = ctx.createLinearGradient(p.x, p.y, p.x, p.y + p.h);
     pg.addColorStop(0, c1); pg.addColorStop(1, c2);
@@ -3988,7 +4045,7 @@ function drawPostRaceScreen() {
 }
 
 function drawStar(x, y, r) {
-  ctx.fillStyle = '#ffd700';
+  ctx.fillStyle = getColor('star');
   ctx.beginPath();
   for (let i = 0; i < 5; i++) {
     const a = (i * 4 * Math.PI) / 5 - Math.PI / 2;
@@ -4014,11 +4071,7 @@ function roundRect(c, x, y, w, h, r) {
 
 function drawGallery() {
   // Background
-  const grad = ctx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0, '#0f3460');
-  grad.addColorStop(1, '#1a1a2e');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, H);
+  // Background drawn by cached offscreen canvas in draw()
   
   // Title
   ctx.textAlign = 'center';
