@@ -10,7 +10,7 @@ const H = 600;
 canvas.width = W;
 canvas.height = H;
 
-const STATE = { TITLE: 0, PLAY: 1, OVER: 2, DAILY: 3 };
+const STATE = { TITLE: 0, PLAY: 1, OVER: 2, DAILY: 3, EDITOR: 4 };
 let state = STATE.TITLE;
 let score = 0;
 let highScore = parseInt(localStorage.getItem('pb_hi') || '0', 10);
@@ -21,6 +21,15 @@ let powerups = [];
 let activePower = null; // { type, timer }
 let cameraY = 0;
 let maxHeight = 0;
+
+// --- Level Editor State ---
+let editorLevel = { platforms: [], stars: [], spawn: { x: W / 2, y: H - 100 } };
+let editorTool = 'normal'; // normal, bouncy, breakable, portal, star, spawn, delete
+let editorHistory = []; // undo/redo stack
+let editorHistoryIndex = -1;
+let isPreviewMode = false;
+const EDITOR_TOOLS = ['normal', 'bouncy', 'breakable', 'portal', 'star', 'spawn', 'delete'];
+const GRID_SIZE = 20;
 
 // --- Persistent Stats & Skins ---
 const defaultStats = { totalStars: 0, totalGames: 0, totalDeaths: 0, bestScore: 0 };
@@ -281,11 +290,35 @@ document.onkeydown = e => {
     if (e.key === 'ArrowRight') { selectedSkin = (selectedSkin + 1) % SKINS.length; localStorage.setItem('pb_skin', selectedSkin); }
   }
   if (e.key === 'd' && state === STATE.TITLE && !showAchievementOverlay) startGame(true);
+  if (e.key === 'e' && state === STATE.TITLE && !showAchievementOverlay) startEditor();
   if ((e.key === ' ' || e.key === 'Enter') && !isPlaying()) startGame();
+  // Editor controls
+  if (state === STATE.EDITOR) {
+    if (e.key === 'Escape') { state = STATE.TITLE; }
+    if (e.key === 'p' || e.key === 'P') previewLevel();
+    if (e.key === 'z' && (keys['Control'] || keys['Meta'])) editorUndo();
+    if (e.key === 'y' && (keys['Control'] || keys['Meta'])) editorRedo();
+    // Tool selection with number keys
+    if (e.key >= '1' && e.key <= '7') {
+      const toolIdx = parseInt(e.key) - 1;
+      if (toolIdx < EDITOR_TOOLS.length) editorTool = EDITOR_TOOLS[toolIdx];
+    }
+  }
+  // Preview mode ESC returns to editor
+  if (state === STATE.PLAY && isPreviewMode && e.key === 'Escape') {
+    isPreviewMode = false;
+    state = STATE.EDITOR;
+  }
 };
 document.onkeyup = e => { keys[e.key] = false; };
 
-canvas.onclick = () => { if (!isPlaying()) startGame(); };
+canvas.onclick = (e) => {
+  if (state === STATE.EDITOR) {
+    handleEditorClick(e);
+  } else if (!isPlaying()) {
+    startGame();
+  }
+};
 
 canvas.addEventListener('touchstart', e => {
   e.preventDefault();
@@ -348,9 +381,108 @@ function makePowerUp(x, y) {
   return { x, y: y - 30, type, r: 10, pulse: Math.random() * Math.PI * 2, collected: false };
 }
 
+// --- Editor Functions ---
+function startEditor() {
+  ensureAudio();
+  state = STATE.EDITOR;
+  isPreviewMode = false;
+  editorLevel = { platforms: [], stars: [], spawn: { x: W / 2, y: H - 100 } };
+  editorTool = 'normal';
+  editorHistory = [];
+  editorHistoryIndex = -1;
+  cameraY = 0;
+}
+
+function handleEditorClick(e) {
+  const rect = canvas.getBoundingClientRect();
+  const rawX = ((e.clientX - rect.left) / rect.width) * W;
+  const rawY = ((e.clientY - rect.top) / rect.height) * H + cameraY;
+  const x = Math.round(rawX / GRID_SIZE) * GRID_SIZE;
+  const y = Math.round(rawY / GRID_SIZE) * GRID_SIZE;
+
+  if (editorTool === 'delete') {
+    // Delete platform or star at position
+    const platIdx = editorLevel.platforms.findIndex(p =>
+      rawX >= p.x && rawX <= p.x + p.w && rawY >= p.y && rawY <= p.y + p.h);
+    const starIdx = editorLevel.stars.findIndex(s =>
+      Math.sqrt((rawX - s.x) ** 2 + (rawY - s.y) ** 2) < 10);
+    if (platIdx >= 0) {
+      editorSaveState();
+      editorLevel.platforms.splice(platIdx, 1);
+    } else if (starIdx >= 0) {
+      editorSaveState();
+      editorLevel.stars.splice(starIdx, 1);
+    }
+  } else if (editorTool === 'spawn') {
+    editorSaveState();
+    editorLevel.spawn = { x, y };
+  } else if (editorTool === 'star') {
+    editorSaveState();
+    editorLevel.stars.push({ x, y, r: 5, pulse: 0, collected: false });
+  } else {
+    // Place platform
+    const w = 80;
+    const h = 10;
+    editorSaveState();
+    editorLevel.platforms.push({
+      x: x - w / 2, y, w, h,
+      type: editorTool === 'normal' ? 'static' : editorTool,
+      dir: 1, speed: 1.5, broken: false, pulse: 0
+    });
+  }
+}
+
+function editorSaveState() {
+  // Remove any redo history
+  editorHistory.splice(editorHistoryIndex + 1);
+  // Save current state
+  editorHistory.push(JSON.parse(JSON.stringify(editorLevel)));
+  // Limit to 20 actions
+  if (editorHistory.length > 20) editorHistory.shift();
+  else editorHistoryIndex++;
+}
+
+function editorUndo() {
+  if (editorHistoryIndex >= 0) {
+    editorLevel = JSON.parse(JSON.stringify(editorHistory[editorHistoryIndex]));
+    editorHistoryIndex--;
+  }
+}
+
+function editorRedo() {
+  if (editorHistoryIndex < editorHistory.length - 1) {
+    editorHistoryIndex++;
+    editorLevel = JSON.parse(JSON.stringify(editorHistory[editorHistoryIndex]));
+  }
+}
+
+function previewLevel() {
+  if (editorLevel.platforms.length === 0) return; // Need at least one platform
+  isPreviewMode = true;
+  state = STATE.PLAY;
+  score = 0;
+  cameraY = 0;
+  maxHeight = 0;
+  ball.x = editorLevel.spawn.x;
+  ball.y = editorLevel.spawn.y;
+  ball.vx = 0;
+  ball.vy = -8;
+  ball.r = 8;
+  // Copy editor level to game state
+  platforms = JSON.parse(JSON.stringify(editorLevel.platforms));
+  stars = JSON.parse(JSON.stringify(editorLevel.stars));
+  particles = [];
+  powerups = [];
+  activePower = null;
+  runStars = 0;
+  runBounces = 0;
+  runStartTime = Date.now();
+}
+
 // --- Game Init ---
 function startGame(daily) {
   ensureAudio();
+  isPreviewMode = false;
   isDailyMode = !!daily;
   // Reset modifiers
   Object.assign(dailyMods, defaultMods);
@@ -394,6 +526,12 @@ function startGame(daily) {
 
 // --- Update ---
 function update() {
+  if (state === STATE.EDITOR) {
+    // Editor camera control with arrow keys
+    if (keys['ArrowUp']) cameraY -= 5;
+    if (keys['ArrowDown']) cameraY += 5;
+    return;
+  }
   if (state !== STATE.PLAY && state !== STATE.DAILY) return;
 
   const accel = 0.5;
@@ -550,6 +688,11 @@ function update() {
       activePower = null;
       playTone(700, 0.2, 'sine', 0.15);
       spawnParticles(ball.x, ball.y, '#4488ff', 20);
+    } else if (isPreviewMode) {
+      // Return to editor from preview
+      isPreviewMode = false;
+      state = STATE.EDITOR;
+      ball.r = 8; // reset radius
     } else {
       state = STATE.OVER;
       sfxGameOver();
@@ -720,6 +863,7 @@ function draw() {
 
   if (state === STATE.TITLE) drawTitleScreen();
   if (state === STATE.OVER) drawGameOver();
+  if (state === STATE.EDITOR) drawEditor();
 
   // Achievement toast
   if (achievementToast && achievementToast.timer > 0) {
@@ -820,7 +964,139 @@ function drawTitleScreen() {
   // Controls hint
   ctx.fillStyle = '#555';
   ctx.font = '10px "Courier New", monospace';
-  ctx.fillText('[A] Achievements  [M] Mute', W / 2, H / 2 + 240);
+  ctx.fillText('[A] Achievements  [M] Mute  [E] Editor', W / 2, H / 2 + 240);
+}
+
+function drawEditor() {
+  // Draw grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += GRID_SIZE) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, H);
+    ctx.stroke();
+  }
+  for (let y = -cameraY; y < H + cameraY; y += GRID_SIZE) {
+    ctx.beginPath();
+    ctx.moveTo(0, y - cameraY);
+    ctx.lineTo(W, y - cameraY);
+    ctx.stroke();
+  }
+
+  ctx.save();
+  ctx.translate(0, -cameraY);
+
+  // Draw platforms from editor level
+  for (const p of editorLevel.platforms) {
+    let c1, c2;
+    switch (p.type) {
+      case 'bouncy':
+        c1 = '#00ff88'; c2 = '#00cc66';
+        break;
+      case 'breakable':
+        c1 = '#ff8c00'; c2 = '#cc6600';
+        break;
+      case 'portal':
+        c1 = '#b44dff'; c2 = '#8800cc';
+        break;
+      case 'moving':
+        c1 = '#16c79a'; c2 = '#0e8a6d';
+        break;
+      default:
+        c1 = '#e94560'; c2 = '#c81e45';
+    }
+    const pg = ctx.createLinearGradient(p.x, p.y, p.x, p.y + p.h);
+    pg.addColorStop(0, c1); pg.addColorStop(1, c2);
+    ctx.fillStyle = pg;
+    roundRect(ctx, p.x, p.y, p.w, p.h, 3);
+    ctx.fill();
+  }
+
+  // Draw stars from editor level
+  for (const s of editorLevel.stars) {
+    drawStar(s.x, s.y, s.r);
+  }
+
+  // Draw spawn point
+  ctx.strokeStyle = '#00ff00';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(editorLevel.spawn.x, editorLevel.spawn.y, 12, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = '#00ff00';
+  ctx.font = '16px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('S', editorLevel.spawn.x, editorLevel.spawn.y + 5);
+
+  ctx.restore();
+
+  // Toolbar
+  ctx.fillStyle = 'rgba(10,10,30,0.85)';
+  ctx.fillRect(0, H - 90, W, 90);
+
+  // Tool buttons
+  const toolLabels = {
+    normal: '1:Normal',
+    bouncy: '2:Bouncy',
+    breakable: '3:Break',
+    portal: '4:Portal',
+    star: '5:Star',
+    spawn: '6:Spawn',
+    delete: '7:Delete'
+  };
+  const toolColors = {
+    normal: '#e94560',
+    bouncy: '#00ff88',
+    breakable: '#ff8c00',
+    portal: '#b44dff',
+    star: '#ffd700',
+    spawn: '#00ff00',
+    delete: '#ff0000'
+  };
+
+  for (let i = 0; i < EDITOR_TOOLS.length; i++) {
+    const tool = EDITOR_TOOLS[i];
+    const x = 10 + i * 55;
+    const y = H - 70;
+    const isActive = editorTool === tool;
+
+    // Button background
+    ctx.fillStyle = isActive ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.3)';
+    roundRect(ctx, x, y, 50, 30, 4);
+    ctx.fill();
+
+    // Button border
+    ctx.strokeStyle = isActive ? toolColors[tool] : 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = isActive ? 2 : 1;
+    roundRect(ctx, x, y, 50, 30, 4);
+    ctx.stroke();
+
+    // Button label
+    ctx.fillStyle = isActive ? '#fff' : '#aaa';
+    ctx.font = 'bold 9px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(toolLabels[tool], x + 25, y + 20);
+  }
+
+  // Instructions
+  ctx.fillStyle = '#fff';
+  ctx.font = '11px "Courier New", monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('Click to place | Ctrl+Z/Y: Undo/Redo', 10, H - 28);
+  ctx.fillText('[P] Preview | [ESC] Exit | ↑↓ Scroll', 10, H - 12);
+
+  // Current tool indicator
+  ctx.textAlign = 'right';
+  ctx.fillStyle = toolColors[editorTool];
+  ctx.font = 'bold 14px "Courier New", monospace';
+  ctx.fillText(toolLabels[editorTool].split(':')[1], W - 10, H - 50);
+
+  // Stats
+  ctx.fillStyle = '#aaa';
+  ctx.font = '11px "Courier New", monospace';
+  ctx.fillText(`Platforms: ${editorLevel.platforms.length}`, W - 10, H - 28);
+  ctx.fillText(`Stars: ${editorLevel.stars.length}`, W - 10, H - 12);
 }
 
 function drawGameOver() {
