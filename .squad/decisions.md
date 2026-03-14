@@ -45,3 +45,29 @@
 **Why:** Clean separation of editor from gameplay state, non-destructive preview (modify for playtesting, restore cleanly), data portability for issue #23 (import/export), and state machine clarity following existing pattern (TITLE:0, PLAY:1, OVER:2, DAILY:3).
 **Owner:** Cut Man
 **Next Review:** Upon issue #22 completion
+
+---
+
+### 2025-01-20T00:00Z: JSON Schema Versioning for Level Import/Export
+**By:** Cut Man
+**Tier:** T1
+**Status:** ✅ ACTIVE
+**What:** Level export JSON includes `version: 1` field alongside platforms, stars, spawn point, and metadata (author, created timestamp). Schema: `{ version, platforms[], stars[], spawn{x,y}, metadata{author, created} }`.
+**Why:** Future-proof versioning enables schema migrations as editor gains features. Importers can detect and upgrade older formats. Metadata tracks level provenance without affecting gameplay.
+**Rationale:** Version field + backwards-compatible structure + optional metadata = forward compatibility without breaking existing levels.
+**Related:** Issue #23 (Import/Export), PR #31
+**Owner:** Cut Man
+**Next Review:** When moving platform direction feature planned
+
+---
+
+### 2025-07-18T00:00Z: Validation Modal UX Pattern
+**By:** Guts Man
+**Tier:** T1
+**Status:** ✅ ACTIVE
+**What:** Validation runs on [P]review button press. Shows blocking modal listing up to 10 errors. Invalid platforms highlighted red. [F] key auto-fixes (clamps bounds, removes overlaps, trims excess). [V] dismisses modal. Reuses achievement overlay pattern.
+**Why:** Non-destructive (editing continues), clear feedback (visual + text), guided fix (one-click remediation), consistent UX pattern. Establishes quality gate before preview/export.
+**Implementation:** Auto-fix conservative: keeps first platform in overlaps, validates startup safety.
+**Related:** Issue #24 (Level Validation), PR #30
+**Owner:** Guts Man
+**Next Review:** When validation rules expand to stars/difficulty
