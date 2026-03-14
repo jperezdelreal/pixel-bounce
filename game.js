@@ -334,6 +334,26 @@ let stats = JSON.parse(localStorage.getItem('pb_stats') || JSON.stringify(defaul
 let selectedSkin = parseInt(localStorage.getItem('pb_skin') || '0', 10);
 let runStars = 0;
 
+// --- Tutorial & Onboarding State ---
+let tutorialComplete = localStorage.getItem('pb_tutorial_complete') === '1';
+let showTutorialOverlay = !tutorialComplete;
+let tutorialStep = 0;
+let isTutorialMode = false;
+let tutorialCheckpoint = 0;
+const TUTORIAL_STEPS = [
+  { title: 'MOVE LEFT & RIGHT', desc: 'Use Arrow Keys, WASD, or Touch to move the ball', icon: '⬅➡' },
+  { title: 'BOUNCE TO CLIMB', desc: 'Land on platforms to bounce higher and climb', icon: '⬆' },
+  { title: 'COLLECT STARS', desc: 'Collect stars to increase your score', icon: '⭐' },
+  { title: 'AVOID FALLING', desc: 'Don\'t fall off the bottom or it\'s game over!', icon: '⚠' }
+];
+const TUTORIAL_CHECKPOINTS = [
+  { y: 450, text: 'Great! Keep bouncing upward' },
+  { y: 300, text: 'Try the green bouncy platforms!' },
+  { y: 150, text: 'Collect stars for bonus points' },
+  { y: 0, text: 'Watch out for orange breakable platforms' },
+  { y: -150, text: 'Amazing! You\'ve mastered the basics!' }
+];
+
 const SKINS = [
   { name: 'Classic', hint: 'Default', unlock: () => true,
     draw(cx, x, y, r) {
@@ -1163,6 +1183,28 @@ document.onkeydown = e => {
     showFPS = !showFPS;
   }
   
+  // Tutorial overlay controls
+  if (showTutorialOverlay && state === STATE.TITLE) {
+    e.preventDefault();
+    if (e.key === 'ArrowRight' || e.key === 'Enter') {
+      tutorialStep++;
+      if (tutorialStep >= TUTORIAL_STEPS.length) {
+        showTutorialOverlay = false;
+        tutorialComplete = true;
+        localStorage.setItem('pb_tutorial_complete', '1');
+      }
+    }
+    if (e.key === 'ArrowLeft' && tutorialStep > 0) {
+      tutorialStep--;
+    }
+    if (e.key === 'Escape') {
+      showTutorialOverlay = false;
+      tutorialComplete = true;
+      localStorage.setItem('pb_tutorial_complete', '1');
+    }
+    return; // Prevent other actions during tutorial overlay
+  }
+  
   if ((e.key === 'a') && !isPlaying()) showAchievementOverlay = !showAchievementOverlay;
   // Skin selector on title screen
   if (state === STATE.TITLE && !showAchievementOverlay) {
@@ -1174,6 +1216,7 @@ document.onkeydown = e => {
   if (e.key === 'c' && state === STATE.TITLE && !showAchievementOverlay) startGallery();
   if (e.key === 'm' && state === STATE.TITLE && !showAchievementOverlay) enterLobby();
   if (e.key === 's' && state === STATE.TITLE && !showAchievementOverlay) startSettings();
+  if (e.key === 't' && state === STATE.TITLE && !showAchievementOverlay) startTutorial();
   if ((e.key === ' ' || e.key === 'Enter') && !isPlaying()) startGame();
   // Settings controls
   if (state === STATE.SETTINGS) {
@@ -2216,6 +2259,7 @@ function renderLevelThumbnail(level) {
 function startGame(daily) {
   ensureAudio();
   isPreviewMode = false;
+  isTutorialMode = false;
   isDailyMode = !!daily;
   // Reset modifiers
   Object.assign(dailyMods, defaultMods);
@@ -2263,6 +2307,70 @@ function startGame(daily) {
   for (let i = 0; i < 4; i++) {
     stars.push(makeStar(100, H - 100));
   }
+}
+
+function startTutorial() {
+  ensureAudio();
+  isTutorialMode = true;
+  isPreviewMode = false;
+  isDailyMode = false;
+  tutorialCheckpoint = 0;
+  Object.assign(dailyMods, defaultMods);
+  state = STATE.PLAY;
+  score = 0;
+  cameraY = 0;
+  maxHeight = 0;
+  ball.x = W / 2;
+  ball.y = H - 100;
+  ball.vx = 0;
+  ball.vy = -8;
+  ball.r = 8;
+  
+  // Tutorial level design - guided platforms with clear path
+  platforms = [
+    // Starting platform
+    { x: 150, y: H - 50, w: 100, h: 12, type: 'static', dir: 0, speed: 0, broken: false, pulse: 0 },
+    // Step 1 - basic jump
+    { x: 130, y: H - 150, w: 140, h: 12, type: 'static', dir: 0, speed: 0, broken: false, pulse: 0 },
+    // Step 2 - bouncy platform
+    { x: 100, y: H - 250, w: 100, h: 12, type: 'bouncy', dir: 0, speed: 0, broken: false, pulse: 0 },
+    { x: 220, y: H - 250, w: 80, h: 12, type: 'static', dir: 0, speed: 0, broken: false, pulse: 0 },
+    // Step 3 - stars area
+    { x: 80, y: H - 350, w: 120, h: 12, type: 'static', dir: 0, speed: 0, broken: false, pulse: 0 },
+    { x: 220, y: H - 350, w: 100, h: 12, type: 'static', dir: 0, speed: 0, broken: false, pulse: 0 },
+    // Step 4 - breakable platforms
+    { x: 100, y: H - 450, w: 80, h: 12, type: 'breakable', dir: 0, speed: 0, broken: false, pulse: 0 },
+    { x: 220, y: H - 460, w: 90, h: 12, type: 'static', dir: 0, speed: 0, broken: false, pulse: 0 },
+    // Step 5 - final platforms
+    { x: 120, y: H - 550, w: 160, h: 12, type: 'static', dir: 0, speed: 0, broken: false, pulse: 0 },
+    { x: 90, y: H - 650, w: 100, h: 12, type: 'bouncy', dir: 0, speed: 0, broken: false, pulse: 0 },
+    { x: 210, y: H - 650, w: 100, h: 12, type: 'static', dir: 0, speed: 0, broken: false, pulse: 0 }
+  ];
+  
+  // Tutorial stars - guide the path
+  stars = [
+    { x: 200, y: H - 200 },
+    { x: 160, y: H - 300 },
+    { x: 270, y: H - 400 },
+    { x: 200, y: H - 500 },
+    { x: 200, y: H - 600 }
+  ];
+  
+  powerups = [];
+  activePower = null;
+  resetParticlePool();
+  runStars = 0;
+  runBounces = 0;
+  runStartTime = Date.now();
+  achievementToast = null;
+  feedbackText = null;
+  shakeOffset = { x: 0, y: 0, decay: 0 };
+  ballTrail = [];
+  milestoneFlash = null;
+  lastMilestone = 0;
+  backgroundTheme = 0;
+  initBackgroundShapes();
+  playBGM();
 }
 
 // --- Multiplayer Race Functions ---
@@ -2657,6 +2765,15 @@ function update() {
       isPreviewMode = false;
       state = STATE.EDITOR;
       ball.r = 8; // reset radius
+    } else if (isTutorialMode) {
+      // In tutorial mode, no game over - respawn at last checkpoint
+      ball.x = W / 2;
+      ball.y = H - 100;
+      ball.vx = 0;
+      ball.vy = -8;
+      cameraY = Math.max(0, cameraY - 200);
+      feedbackText = { text: 'Keep trying! No game over in tutorial', x: W / 2, y: H / 2, color: '#00ff88', timer: 120 };
+      spawnParticles(ball.x, ball.y, '#00ff88', accessibility.reducedMotion ? 0 : 20);
     } else if (isPlayingCommunityLevel) {
       // Community level game over - prompt for name and submit score
       state = STATE.OVER;
@@ -2686,6 +2803,16 @@ function update() {
         localStorage.setItem('pb_hi', String(highScore));
       }
       ball.r = 8; // reset radius
+    }
+  }
+  
+  // Tutorial checkpoint tracking
+  if (isTutorialMode && tutorialCheckpoint < TUTORIAL_CHECKPOINTS.length) {
+    const checkpoint = TUTORIAL_CHECKPOINTS[tutorialCheckpoint];
+    if (ball.y <= checkpoint.y && !feedbackText) {
+      feedbackText = { text: checkpoint.text, x: W / 2, y: H / 2, color: '#ffd700', timer: 120 };
+      tutorialCheckpoint++;
+      spawnParticles(ball.x, ball.y, '#ffd700', accessibility.reducedMotion ? 0 : 30);
     }
   }
   
@@ -3259,10 +3386,77 @@ function drawTitleScreen() {
   ctx.fillStyle = '#16c79a';
   ctx.font = 'bold 13px "Courier New", monospace';
   ctx.fillText('[ M ] Multiplayer', W / 2, H / 2 + 268);
+  // Tutorial
+  ctx.fillStyle = '#88ddff';
+  ctx.font = 'bold 13px "Courier New", monospace';
+  ctx.fillText('[ T ] Tutorial', W / 2, H / 2 + 283);
   // Controls hint
   ctx.fillStyle = '#555';
   ctx.font = '10px "Courier New", monospace';
-  ctx.fillText('[A] Achievements  [Shift+M] Mute', W / 2, H / 2 + 293);
+  ctx.fillText('[A] Achievements  [Shift+M] Mute', W / 2, H / 2 + 308);
+  
+  // Tutorial overlay
+  if (showTutorialOverlay) {
+    ctx.fillStyle = 'rgba(10,10,30,0.95)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    
+    // Title
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 26px "Courier New", monospace';
+    ctx.fillText('WELCOME TO PIXEL BOUNCE', W / 2, 60);
+    
+    // Step indicator
+    ctx.fillStyle = '#aaa';
+    ctx.font = '12px "Courier New", monospace';
+    ctx.fillText(`Step ${tutorialStep + 1} of ${TUTORIAL_STEPS.length}`, W / 2, 90);
+    
+    // Current step content
+    const step = TUTORIAL_STEPS[tutorialStep];
+    ctx.font = '48px sans-serif';
+    ctx.fillText(step.icon, W / 2, 180);
+    
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 20px "Courier New", monospace';
+    ctx.fillText(step.title, W / 2, 240);
+    
+    ctx.fillStyle = '#aaa';
+    ctx.font = '14px "Courier New", monospace';
+    const descLines = step.desc.split('\n');
+    for (let i = 0; i < descLines.length; i++) {
+      ctx.fillText(descLines[i], W / 2, 270 + i * 20);
+    }
+    
+    // Navigation hints
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 14px "Courier New", monospace';
+    const navY = H - 100;
+    if (tutorialStep > 0) {
+      ctx.fillText('◀', W / 2 - 80, navY);
+      ctx.fillStyle = '#aaa';
+      ctx.font = '12px "Courier New", monospace';
+      ctx.fillText('Back', W / 2 - 80, navY + 20);
+    }
+    
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 14px "Courier New", monospace';
+    if (tutorialStep < TUTORIAL_STEPS.length - 1) {
+      ctx.fillText('▶', W / 2 + 80, navY);
+      ctx.fillStyle = '#aaa';
+      ctx.font = '12px "Courier New", monospace';
+      ctx.fillText('Next', W / 2 + 80, navY + 20);
+    } else {
+      ctx.fillText('✓', W / 2 + 80, navY);
+      ctx.fillStyle = '#aaa';
+      ctx.font = '12px "Courier New", monospace';
+      ctx.fillText('Done', W / 2 + 80, navY + 20);
+    }
+    
+    // Center action hint
+    ctx.fillStyle = '#16c79a';
+    ctx.font = 'bold 13px "Courier New", monospace';
+    ctx.fillText('[Enter] Continue  [ESC] Skip', W / 2, H - 40);
+  }
 }
 
 function drawPauseMenu() {
