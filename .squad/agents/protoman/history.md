@@ -130,3 +130,102 @@
 
 **Next Architectural Decision:** Multiplayer backend (Issue #27 vs #26) — Socket.io vs WebRTC, Node.js hosting choice
 
+### Multiplayer Foundation Implementation (Issue #28) — 2025-01-27
+
+**Context:** Biggest architectural change yet. Game is 100% client-side on GitHub Pages. Need to add real-time multiplayer for competitive racing (2-4 players). Must handle lobby system, room management, synchronization.
+
+**Architectural Decision:**
+- **Stack chosen:** Node.js + Socket.io + Express
+- **Rationale:**
+  - Socket.io handles WebSocket fallbacks, reconnection, room management natively
+  - Minimal dependencies (just socket.io + express for health check)
+  - Easy deployment to free tier (Render/Railway/Fly.io)
+  - Battle-tested for real-time games, JavaScript end-to-end
+- **Rejected alternatives:**
+  - WebSocket only: Too much manual work for reconnection/rooms/fallbacks
+  - WebRTC P2P: More complex, requires signaling server anyway, NAT issues
+  - Supabase Realtime: Overkill, adds database dependency we don't need yet
+  - Colyseus/Photon: Too heavy, vendor lock-in
+
+**Server Implementation:**
+- **Structure:** Clean separation in `server/` directory
+  - `package.json` — socket.io ^4.7.2 + express ^4.18.2
+  - `index.js` — HTTP + Socket.io server, event handlers (350+ lines)
+  - `Room.js` — Room state machine class (150+ lines)
+  - `.env.example` — PORT config template
+- **Key features:**
+  - 6-char alphanumeric room codes (no confusing chars: 0/O, 1/I/l excluded)
+  - Quick match: Auto-pairs 2+ waiting players
+  - Ready system: All ready → 3-2-1 countdown → race starts
+  - Rate limiting: 20 msg/sec per client (prevents spam/abuse)
+  - Disconnect handling: Notify other players, cleanup empty rooms
+  - Auto-cleanup: Remove empty rooms after 1 minute
+- **Socket events:**
+  - Client → Server: `create-room`, `join-room`, `quick-match`, `ready`, `leave-room`, `ping`
+  - Server → Client: `room-update`, `countdown`, `race-start`, `player-left`, `matched`, `error`, `pong`
+
+**Client Integration:**
+- **game.js changes:** +300 lines (now 2700+ total)
+- **New state:** STATE.LOBBY (value: 6)
+- **New class:** MultiplayerClient wraps Socket.io
+  - Loads socket.io from CDN on demand
+  - Auto-reconnection with exponential backoff
+  - Ping/pong latency measurement every 2s
+- **New globals:** `multiplayerClient`, `lobbyState`, `currentRoom`, `roomCodeInput`, `playerNameInput`, `serverPing`, `isReady`, `countdownValue`, `lobbyError`
+- **Config:** `GAME_SERVER_URL` constant (default: 'http://localhost:3000')
+- **UI additions:**
+  - Title screen: `[M] Multiplayer` button (green accent)
+  - Lobby states: menu, creating, joining, quick-match, in-room
+  - Room view: code display, player list with ready status, ping, countdown overlay
+- **Keyboard controls:**
+  - M from title → enter lobby
+  - Menu: 1=Create, 2=Join, 3=Quick Match
+  - In room: R=Toggle Ready, ESC=Leave
+  - Join: Type 6-char code + Enter
+
+**Implementation Stats:**
+- Server code: 500+ lines across 3 files
+- Client code: 300+ lines added to game.js
+- Socket.io CDN: Loaded on-demand (no build step required)
+- Total game.js: 2700+ lines (was 2400)
+
+**Technical Learnings:**
+- Socket.io's room system is PERFECT for game lobbies — handles all the hard parts
+- Rate limiting essential even for simple game servers (prevents abuse)
+- Ping display critical for player experience (helps diagnose connection issues)
+- Room codes need careful character selection (avoid visual confusion)
+- Auto-cleanup prevents memory leaks from abandoned rooms
+- Keycode conflict resolved: Shift+M for mute, M for multiplayer (better UX)
+
+**Deployment Plan (Not Yet Done):**
+1. Create free account on Render/Railway/Fly.io
+2. Deploy server with environment variable for PORT
+3. Update GAME_SERVER_URL in game.js to production URL
+4. Test from GitHub Pages with production server
+5. Add deployment docs to README
+
+**What's Working:**
+- Server starts successfully (`cd server && npm install && npm start`)
+- Client connects to localhost server
+- Room creation returns 6-char code
+- Room joining by code works
+- Quick match pairs waiting players
+- Ready system toggles per player
+- Countdown syncs across all clients in room
+- Disconnect handling notifies others
+
+**What's NOT Working Yet:**
+- Actual multiplayer race gameplay (that's Issue #29 — next)
+- Production server deployment (manual setup required)
+- Race start doesn't launch game yet (TODO: implement race sync)
+
+**Decision Document:** `.squad/decisions/inbox/protoman-multiplayer-architecture.md`  
+**Branch:** squad/28-multiplayer-foundation  
+**Commits:** 2 (main implementation + docs)  
+**Status:** Ready for PR  
+
+**Next Steps:**
+1. Create PR for review
+2. Deploy server to production (manual task, not automatable)
+3. Issue #29: Implement actual multiplayer race gameplay (position sync, finish detection, results screen)
+
