@@ -71,3 +71,22 @@
 **Related:** Issue #24 (Level Validation), PR #30
 **Owner:** Guts Man
 **Next Review:** When validation rules expand to stars/difficulty
+
+---
+
+### 2025-01-20T00:00Z: Backend Architecture Decision — Community Gallery
+**By:** Proto Man (Lead/Architect)
+**Tier:** T1
+**Status:** ✅ IMPLEMENTED
+**Issue:** #27 — Community Gallery
+**What:** Implement client-side first approach with pluggable LevelAPI abstraction layer. Storage: `localStorage` key `pixelbounce_gallery`. Data structure includes version, platforms, stars, spawn, metadata (name, description, difficulty, tags, author, created), plays, rating, ratingCount. Features: gallery browse with sorting (recent, popular, top-rated), level thumbnails (offscreen canvas), play community levels, post-game rating (1-5 stars), upload from editor, 5 demo levels.
+**Why:** Constraints — GitHub Actions environment cannot create external service accounts programmatically, need working feature immediately, must remain future-proof. Benefits — ships immediately with zero backend cost, validates UGC adoption (40% D7 retention target) before expensive infrastructure investment, seamless upgrade path (swap LevelAPI internals to REST when ready).
+**Rationale:** Client-side first is valid, not every feature needs a backend on day 1. Abstraction layers enable progressive enhancement: localStorage → REST API → Real-time sync → Cross-device.
+**Alternatives Considered:** Option A (Supabase/Firebase first) rejected — requires manual account setup, blocks delivery. Option B (GitHub Gists) rejected — architectural smell, rate limits, bad UX. Option C (localStorage only, no abstraction) rejected — couples game logic to storage, expensive refactor later.
+**Implementation:** LevelAPI abstraction with four methods (save, list, get, rate). Game code changes: zero when backend integrates. Demo levels showcase platform variety: Skyward Bounce (Medium), Glass Gauntlet (Hard), Rhythm Rush (Hard), Bounce Haven (Easy), Portal Maze (Expert).
+**Code Quality:** Vanilla JS style, reuses existing UI patterns, consistent with editor architecture, maintains 60fps (offscreen canvas for thumbnails).
+**Tech Debt:** None — clean abstraction, no shortcuts.
+**Next Steps:** Validate adoption (monitor localStorage stats), gather user feedback, choose backend (Supabase vs Firebase vs Custom, deferred to Wave 2). Backend integration checklist: REST API schema, authentication (GitHub OAuth/anonymous), migration tool (export localStorage → backend), moderation, search/filtering.
+**Risk Level:** Low (localStorage well-supported, abstraction enables future swap).
+**Owner:** Proto Man
+**Next Review:** When backend integration planned (Issue #26+)
