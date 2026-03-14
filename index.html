@@ -51,6 +51,47 @@
       white-space: nowrap;
       border: 0;
     }
+    
+    /* Responsive design for mobile devices */
+    @media (max-width: 768px) {
+      body {
+        padding: 0;
+      }
+      canvas {
+        border-radius: 0;
+        border-width: 1px;
+      }
+    }
+    
+    @media (max-width: 400px) {
+      body {
+        padding: 0;
+      }
+      canvas {
+        border: none;
+        border-radius: 0;
+        max-width: 100vw;
+        max-height: 100vh;
+      }
+    }
+    
+    /* Landscape mode optimization */
+    @media (orientation: landscape) and (max-height: 500px) {
+      body {
+        align-items: center;
+      }
+      canvas {
+        max-height: 100vh;
+        width: auto;
+      }
+    }
+    
+    /* Small screen width optimization (320px minimum) */
+    @media (max-width: 320px) {
+      canvas {
+        border: none;
+      }
+    }
   </style>
 </head>
 <body>

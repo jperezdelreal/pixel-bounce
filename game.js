@@ -1199,6 +1199,11 @@ function saveDailyScore(s) {
 const ball = { x: W / 2, y: H / 2, vx: 0, vy: 0, r: 8 };
 const keys = {};
 let touchX = null;
+let touchZones = []; // { x, y, alpha, timer }
+let showTouchZones = true; // Show on first touch, fade after 2s
+let touchZoneFadeTimer = 0;
+let touchStartPos = null; // { x, y, time } for swipe detection
+let lastTouchId = null; // Track multi-touch in editor
 
 // --- Audio (WebAudio API — procedural, zero external files) ---
 let audioCtx = null;
@@ -1760,8 +1765,35 @@ canvas.onclick = (e) => {
 
 canvas.addEventListener('touchstart', e => {
   e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const touch = e.touches[0];
+  const rawX = ((touch.clientX - rect.left) / rect.width) * W;
+  const rawY = ((touch.clientY - rect.top) / rect.height) * H;
+  
+  // Show touch zone indicators on first touch
+  if (showTouchZones) {
+    touchZones.push({ x: rawX, y: rawY, alpha: 1.0, timer: 120 }); // 2s at 60fps
+    touchZoneFadeTimer = 120;
+  }
+  
+  // Store touch start for swipe detection
+  touchStartPos = { x: rawX, y: rawY, time: Date.now() };
+  lastTouchId = touch.identifier;
+  
+  // Editor touch handling
+  if (state === STATE.EDITOR) {
+    handleEditorTouch(rawX, rawY, 'start');
+    return;
+  }
+  
+  // Gallery touch handling
+  if (state === STATE.GALLERY) {
+    handleGalleryTouch(rawX, rawY, 'start');
+    return;
+  }
+  
+  // Game over screen touch
   if (state === STATE.OVER && communityLevelId) {
-    // Return to gallery from community level
     if (!showRatingModal) {
       communityLevelId = null;
       isPlayingCommunityLevel = false;
@@ -1769,14 +1801,71 @@ canvas.addEventListener('touchstart', e => {
     }
     return;
   }
-  if (!isPlaying()) { startGame(); return; }
-  touchX = (e.touches[0].clientX - cachedRect.left) / cachedRect.width * W;
+  
+  // Title screen or gameplay touch
+  if (!isPlaying()) { 
+    startGame(); 
+    return; 
+  }
+  
+  // Gameplay touch control (direct state update, no setTimeout)
+  touchX = rawX;
 }, { passive: false });
+
 canvas.addEventListener('touchmove', e => {
   e.preventDefault();
-  touchX = (e.touches[0].clientX - cachedRect.left) / cachedRect.width * W;
+  const rect = canvas.getBoundingClientRect();
+  const touch = e.touches[0];
+  const rawX = ((touch.clientX - rect.left) / rect.width) * W;
+  const rawY = ((touch.clientY - rect.top) / rect.height) * H;
+  
+  // Gallery swipe detection
+  if (state === STATE.GALLERY && touchStartPos) {
+    const deltaY = rawY - touchStartPos.y;
+    const deltaTime = Date.now() - touchStartPos.time;
+    
+    // Swipe threshold: 30px movement in <300ms
+    if (Math.abs(deltaY) > 30 && deltaTime < 300) {
+      if (deltaY < 0 && galleryScroll < galleryLevels.length - 1) {
+        galleryScroll++;
+        touchStartPos = null; // Prevent multiple triggers
+      } else if (deltaY > 0 && galleryScroll > 0) {
+        galleryScroll--;
+        touchStartPos = null;
+      }
+    }
+    return;
+  }
+  
+  // Editor drag handling
+  if (state === STATE.EDITOR) {
+    handleEditorTouch(rawX, rawY, 'move');
+    return;
+  }
+  
+  // Gameplay touch control
+  if (isPlaying()) {
+    touchX = rawX;
+  }
 }, { passive: false });
-canvas.addEventListener('touchend', e => { e.preventDefault(); touchX = null; }, { passive: false });
+
+canvas.addEventListener('touchend', e => { 
+  e.preventDefault(); 
+  const rect = canvas.getBoundingClientRect();
+  
+  // Handle gallery click on touchend
+  if (state === STATE.GALLERY && touchStartPos) {
+    const deltaTime = Date.now() - touchStartPos.time;
+    // If touch was quick (<200ms), treat as tap/click
+    if (deltaTime < 200) {
+      handleGalleryTouch(touchStartPos.x, touchStartPos.y, 'end');
+    }
+  }
+  
+  touchX = null;
+  touchStartPos = null;
+  lastTouchId = null;
+}, { passive: false });
 
 // --- Factories ---
 function makePlatform(y) {
@@ -2049,6 +2138,122 @@ function handleEditorClick(e) {
       type: editorTool === 'normal' ? 'static' : editorTool,
       dir: 1, speed: 1.5, broken: false, pulse: 0
     });
+  }
+}
+
+function handleEditorTouch(rawX, rawY, eventType) {
+  const x = Math.round((rawX / GRID_SIZE)) * GRID_SIZE;
+  const y = Math.round(((rawY + cameraY) / GRID_SIZE)) * GRID_SIZE;
+  
+  // Metadata modal difficulty badge touches
+  if (showMetadataModal) {
+    const difficulties = ['Easy', 'Medium', 'Hard', 'Expert'];
+    for (let i = 0; i < difficulties.length; i++) {
+      const bx = 30 + i * 90;
+      const by = 355;
+      if (rawX >= bx && rawX <= bx + 80 && rawY >= by && rawY <= by + 30) {
+        metadataInputs.difficulty = difficulties[i];
+        return;
+      }
+    }
+    return;
+  }
+  
+  // Check for UI button touches (toolbar at bottom)
+  if (rawY >= H - 90) {
+    // Tool buttons
+    for (let i = 0; i < EDITOR_TOOLS.length; i++) {
+      const btnX = 10 + i * 55;
+      const btnY = H - 70;
+      if (rawX >= btnX && rawX <= btnX + 50 && rawY >= btnY && rawY <= btnY + 30) {
+        editorTool = EDITOR_TOOLS[i];
+        return;
+      }
+    }
+    
+    // Export button
+    if (rawX >= 10 && rawX <= 70 && rawY >= H - 38 && rawY <= H - 13) {
+      exportLevel();
+      return;
+    }
+    
+    // Import button
+    if (rawX >= 80 && rawX <= 140 && rawY >= H - 38 && rawY <= H - 13) {
+      openImportModal();
+      return;
+    }
+    
+    // File Import button
+    if (rawX >= 150 && rawX <= 210 && rawY >= H - 38 && rawY <= H - 13) {
+      handleFileImport();
+      return;
+    }
+    
+    return; // Don't place objects in toolbar area
+  }
+  
+  const worldY = rawY + cameraY;
+  
+  if (editorTool === 'delete') {
+    // Delete platform or star at position
+    const platIdx = editorLevel.platforms.findIndex(p =>
+      rawX >= p.x && rawX <= p.x + p.w && worldY >= p.y && worldY <= p.y + p.h);
+    const starIdx = editorLevel.stars.findIndex(s =>
+      Math.sqrt((rawX - s.x) ** 2 + (worldY - s.y) ** 2) < 10);
+    if (platIdx >= 0) {
+      editorSaveState();
+      editorLevel.platforms.splice(platIdx, 1);
+    } else if (starIdx >= 0) {
+      editorSaveState();
+      editorLevel.stars.splice(starIdx, 1);
+    }
+  } else if (editorTool === 'spawn') {
+    editorSaveState();
+    editorLevel.spawn = { x, y };
+  } else if (editorTool === 'star') {
+    editorSaveState();
+    editorLevel.stars.push({ x, y, r: 5, pulse: 0, collected: false });
+  } else {
+    // Place platform
+    const w = 80;
+    const h = 10;
+    editorSaveState();
+    editorLevel.platforms.push({
+      x: x - w / 2, y, w, h,
+      type: editorTool === 'normal' ? 'static' : editorTool,
+      dir: 1, speed: 1.5, broken: false, pulse: 0
+    });
+  }
+}
+
+function handleGalleryTouch(x, y, eventType) {
+  // Sort buttons
+  const sortBtns = [
+    { x: 20, y: 70, w: 110, sort: 'recent' },
+    { x: 140, y: 70, w: 110, sort: 'popular' },
+    { x: 260, y: 70, w: 110, sort: 'top-rated' }
+  ];
+  for (const btn of sortBtns) {
+    if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + 25) {
+      gallerySort = btn.sort;
+      galleryLevels = LevelAPI.list(gallerySort);
+      galleryScroll = 0;
+      return;
+    }
+  }
+  
+  // Level cards (clickable area)
+  const startY = 110;
+  const cardH = 90;
+  const visibleCards = Math.min(5, galleryLevels.length);
+  for (let i = 0; i < visibleCards; i++) {
+    const idx = galleryScroll + i;
+    if (idx >= galleryLevels.length) break;
+    const cardY = startY + i * (cardH + 10);
+    if (x >= 10 && x <= W - 10 && y >= cardY && y <= cardY + cardH) {
+      playCommunityLevel(galleryLevels[idx]);
+      return;
+    }
   }
 }
 
@@ -4822,6 +5027,42 @@ function drawGallery() {
     
     shareToast.timer--;
     if (shareToast.timer <= 0) shareToast = null;
+  }
+  
+  // Draw touch zone indicators (fade after 2s)
+  if (touchZones.length > 0) {
+    for (let i = touchZones.length - 1; i >= 0; i--) {
+      const zone = touchZones[i];
+      zone.timer--;
+      zone.alpha = zone.timer / 120; // Fade over 2s (120 frames at 60fps)
+      
+      if (zone.timer <= 0) {
+        touchZones.splice(i, 1);
+        continue;
+      }
+      
+      ctx.globalAlpha = zone.alpha * 0.5;
+      ctx.fillStyle = '#ffd700';
+      ctx.beginPath();
+      ctx.arc(zone.x, zone.y, 30, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.globalAlpha = zone.alpha * 0.8;
+      ctx.strokeStyle = '#ffd700';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(zone.x, zone.y, 35, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1.0;
+    
+    // Turn off touch zone indicators after first 2s
+    if (touchZoneFadeTimer > 0) {
+      touchZoneFadeTimer--;
+      if (touchZoneFadeTimer === 0) {
+        showTouchZones = false;
+      }
+    }
   }
 }
 
