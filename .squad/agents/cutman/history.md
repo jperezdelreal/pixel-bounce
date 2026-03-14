@@ -57,3 +57,37 @@
 - **Preview Mode**: Non-destructive playtest - press P to test, ESC returns to editing without losing work
 - **Visual Feedback**: Color-coded tools (Normal=red, Bouncy=green, Portal=purple, etc.) match gameplay colors
 - **Keyboard-first**: All editor functions accessible via keyboard (no mouse required except placement)
+
+### Level Import/Export Implementation (Issue #23)
+- **Date:** 2025-01-20
+- **Branch:** squad/23-level-import-export
+- **PR:** #31
+- **What:** Implemented JSON import/export for custom levels with clipboard, file I/O, validation, and toast notifications
+- **Changes:**
+  - Export functionality: Copies level JSON to clipboard + downloads .json file (level-{timestamp}.json)
+  - Import modal: Paste JSON with Enter to import, ESC to cancel
+  - File import/export: Upload .json files via file picker, download via Blob API
+  - JSON schema v1 with fields: version, platforms[], stars[], spawn{x,y}, metadata{author, created}
+  - Toast notification system: Success (green) and error (red) toasts, auto-dismiss after 2 seconds
+  - Validation: Checks required fields (platforms array, spawn point), rejects invalid JSON
+  - Import loads level directly into editor with editorSaveState() for undo support
+  - Three buttons in toolbar: Export (green), Import (blue), File (orange)
+  - Keyboard shortcuts: [X] export, [I] import modal, [F] file picker, Ctrl+S export
+
+### Architecture Decisions - Import/Export
+- **JSON Schema Versioning**: Added version:1 field for future schema migrations if level format changes
+- **Dual Export Paths**: Both clipboard (navigator.clipboard.writeText) and file download for flexibility
+- **Toast System**: Separate from achievements, uses {text, timer, type} object with 60fps countdown
+- **Modal State**: showImportModal flag + importInput string, paste event listener captures Ctrl+V
+- **Validation Strategy**: JSON.parse try-catch + explicit field checks, fails fast with clear error messages
+- **File Download Pattern**: Blob + createObjectURL + temporary anchor element, URL.revokeObjectURL cleanup
+- **Import Safety**: Deep copy via map() with fallback values (p.x || 0, p.type || 'static') handles partial data
+
+### Code Patterns - Import/Export
+- **Modal Rendering**: Overlay with rgba(10,10,30,0.95) darkens background, z-index via render order
+- **Button Hit Detection**: rawY >= H - 90 check prevents toolbar clicks from placing objects
+- **Toast Animation**: Linear countdown (timer--), auto-clear when timer <= 0
+- **Paste Handling**: document.addEventListener('paste') checks state + showImportModal flags
+- **File API**: FileReader.readAsText() async pattern with reader.onload callback
+- **Clipboard API**: Promise-based navigator.clipboard.writeText() with .then()/.catch() for feedback
+

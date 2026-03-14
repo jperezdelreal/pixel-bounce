@@ -36,6 +36,9 @@ let importInput = '';
 let showValidationModal = false;
 let validationErrors = [];
 let invalidPlatforms = new Set();
+let showMetadataModal = false;
+let metadataInputs = { name: '', description: '', difficulty: 'Medium', tags: '' };
+let metadataFocusField = 'name'; // name, description, tags
 
 // --- Persistent Stats & Skins ---
 const defaultStats = { totalStars: 0, totalGames: 0, totalDeaths: 0, bestScore: 0 };
@@ -345,6 +348,14 @@ document.onkeydown = e => {
 };
 document.onkeyup = e => { keys[e.key] = false; };
 
+// Paste handler for import modal
+document.addEventListener('paste', (e) => {
+  if (state === STATE.EDITOR && showImportModal) {
+    e.preventDefault();
+    importInput = e.clipboardData.getData('text');
+  }
+});
+
 canvas.onclick = (e) => {
   if (state === STATE.EDITOR) {
     handleEditorClick(e);
@@ -469,19 +480,19 @@ function handleEditorClick(e) {
     }
     
     // Export button (left side, below tools)
-    if (rawX >= 10 && rawX <= 70 && rawY >= H - 32 && rawY <= H - 7) {
+    if (rawX >= 10 && rawX <= 70 && rawY >= H - 38 && rawY <= H - 13) {
       exportLevel();
       return;
     }
     
     // Import button (right side, below tools)
-    if (rawX >= 80 && rawX <= 140 && rawY >= H - 32 && rawY <= H - 7) {
+    if (rawX >= 80 && rawX <= 140 && rawY >= H - 38 && rawY <= H - 13) {
       openImportModal();
       return;
     }
     
     // File Import button
-    if (rawX >= 150 && rawX <= 210 && rawY >= H - 32 && rawY <= H - 7) {
+    if (rawX >= 150 && rawX <= 210 && rawY >= H - 38 && rawY <= H - 13) {
       handleFileImport();
       return;
     }
@@ -703,22 +714,22 @@ function previewLevel() {
 }
 
 function exportLevel() {
-  // Validate before export
-  const validation = validateLevel(editorLevel);
-  if (!validation.valid) {
-    validationErrors = validation.errors;
-    showValidationModal = true;
+  if (!editorLevel.metadata.name || editorLevel.metadata.name === 'Untitled Level') {
+    showToast('Set a level name first! [M]', 'error');
     return;
   }
-  
   const levelData = {
     version: 1,
     platforms: editorLevel.platforms,
     stars: editorLevel.stars,
     spawn: editorLevel.spawn,
     metadata: {
-      author: 'Player',
-      created: new Date().toISOString()
+      name: editorLevel.metadata.name,
+      description: editorLevel.metadata.description,
+      difficulty: editorLevel.metadata.difficulty,
+      tags: editorLevel.metadata.tags,
+      author: editorLevel.metadata.author,
+      created: editorLevel.metadata.created
     }
   };
   const json = JSON.stringify(levelData, null, 2);
@@ -778,7 +789,15 @@ function importLevel(jsonString) {
         pulse: 0,
         collected: false
       })),
-      spawn: { x: data.spawn.x, y: data.spawn.y }
+      spawn: { x: data.spawn.x, y: data.spawn.y },
+      metadata: {
+        name: (data.metadata && data.metadata.name) || 'Untitled Level',
+        description: (data.metadata && data.metadata.description) || '',
+        difficulty: (data.metadata && data.metadata.difficulty) || 'Medium',
+        tags: (data.metadata && Array.isArray(data.metadata.tags)) ? data.metadata.tags : [],
+        author: (data.metadata && data.metadata.author) || 'Player',
+        created: (data.metadata && data.metadata.created) || new Date().toISOString()
+      }
     };
     
     showToast('Level imported!', 'success');
@@ -815,6 +834,30 @@ function handleFileImport() {
     reader.readAsText(file);
   };
   input.click();
+}
+
+function openMetadataModal() {
+  showMetadataModal = true;
+  metadataInputs = {
+    name: editorLevel.metadata.name,
+    description: editorLevel.metadata.description,
+    difficulty: editorLevel.metadata.difficulty,
+    tags: editorLevel.metadata.tags.join(', ')
+  };
+  metadataFocusField = 'name';
+}
+
+function closeMetadataModal() {
+  showMetadataModal = false;
+}
+
+function saveMetadata() {
+  editorLevel.metadata.name = metadataInputs.name.trim() || 'Untitled Level';
+  editorLevel.metadata.description = metadataInputs.description.trim();
+  editorLevel.metadata.difficulty = metadataInputs.difficulty;
+  editorLevel.metadata.tags = metadataInputs.tags.split(',').map(t => t.trim()).filter(t => t.length > 0);
+  showMetadataModal = false;
+  showToast('Metadata saved!', 'success');
 }
 
 function showToast(text, type = 'success') {
@@ -872,6 +915,11 @@ function update() {
     // Editor camera control with arrow keys
     if (keys['ArrowUp']) cameraY -= 5;
     if (keys['ArrowDown']) cameraY += 5;
+    // Update toast timer
+    if (editorToast && editorToast.timer > 0) {
+      editorToast.timer--;
+      if (editorToast.timer <= 0) editorToast = null;
+    }
     return;
   }
   if (state !== STATE.PLAY && state !== STATE.DAILY) return;
@@ -1438,8 +1486,46 @@ function drawEditor() {
   ctx.fillStyle = '#fff';
   ctx.font = '11px "Courier New", monospace';
   ctx.textAlign = 'left';
-  ctx.fillText('Click to place | Ctrl+Z/Y: Undo/Redo', 10, H - 28);
-  ctx.fillText('[P] Preview | [ESC] Exit | ↑↓ Scroll', 10, H - 12);
+  ctx.fillText('Click to place | [X] Export | [I] Import | [F] File', 10, H - 38);
+  ctx.fillText('[P] Preview | [ESC] Exit | ↑↓ Scroll', 10, H - 24);
+  
+  // Export/Import buttons
+  // Export button
+  ctx.fillStyle = 'rgba(0,180,100,0.7)';
+  roundRect(ctx, 10, H - 38, 60, 20, 4);
+  ctx.fill();
+  ctx.strokeStyle = '#00ff88';
+  ctx.lineWidth = 1;
+  roundRect(ctx, 10, H - 38, 60, 20, 4);
+  ctx.stroke();
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 10px "Courier New", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('Export', 40, H - 24);
+  
+  // Import button
+  ctx.fillStyle = 'rgba(0,120,200,0.7)';
+  roundRect(ctx, 80, H - 38, 60, 20, 4);
+  ctx.fill();
+  ctx.strokeStyle = '#4488ff';
+  ctx.lineWidth = 1;
+  roundRect(ctx, 80, H - 38, 60, 20, 4);
+  ctx.stroke();
+  ctx.fillStyle = '#fff';
+  ctx.fillText('Import', 110, H - 24);
+  
+  // File Import button
+  ctx.fillStyle = 'rgba(200,120,0,0.7)';
+  roundRect(ctx, 150, H - 38, 60, 20, 4);
+  ctx.fill();
+  ctx.strokeStyle = '#ff8800';
+  ctx.lineWidth = 1;
+  roundRect(ctx, 150, H - 38, 60, 20, 4);
+  ctx.stroke();
+  ctx.fillStyle = '#fff';
+  ctx.fillText('File', 180, H - 24);
+  
+  ctx.textAlign = 'left';
 
   // Current tool indicator
   ctx.textAlign = 'right';
@@ -1513,6 +1599,68 @@ function drawEditor() {
     ctx.fillStyle = '#aaa';
     ctx.font = '10px "Courier New", monospace';
     ctx.fillText('Auto-fix will remove overlaps, clamp bounds, and trim excess items', W / 2, H - 60);
+  }
+  
+  // Import Modal
+  if (showImportModal) {
+    ctx.fillStyle = 'rgba(10,10,30,0.95)';
+    ctx.fillRect(0, 0, W, H);
+    
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#4488ff';
+    ctx.font = 'bold 20px "Courier New", monospace';
+    ctx.fillText('IMPORT LEVEL', W / 2, 60);
+    
+    ctx.font = '11px "Courier New", monospace';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('Paste level JSON below:', W / 2, 90);
+    
+    // Input box
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    roundRect(ctx, 20, 110, W - 40, 200, 6);
+    ctx.fill();
+    ctx.strokeStyle = '#4488ff';
+    ctx.lineWidth = 2;
+    roundRect(ctx, 20, 110, W - 40, 200, 6);
+    ctx.stroke();
+    
+    // Show input text (simple single line for now)
+    ctx.fillStyle = '#fff';
+    ctx.font = '10px "Courier New", monospace';
+    ctx.textAlign = 'left';
+    const displayText = importInput.length > 50 ? importInput.substring(0, 50) + '...' : importInput;
+    ctx.fillText(displayText || '(paste JSON here)', 30, 130);
+    
+    // Instructions
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#aaa';
+    ctx.font = '11px "Courier New", monospace';
+    ctx.fillText('Press [Enter] to import, [ESC] to cancel', W / 2, 340);
+    ctx.fillText('Or use [F] File button to upload .json file', W / 2, 360);
+  }
+  
+  // Toast notification
+  if (editorToast) {
+    const toastY = 20;
+    const toastW = 240;
+    const toastH = 50;
+    const toastX = (W - toastW) / 2;
+    
+    const bgColor = editorToast.type === 'success' ? 'rgba(0,180,100,0.95)' : 'rgba(220,50,50,0.95)';
+    ctx.fillStyle = bgColor;
+    roundRect(ctx, toastX, toastY, toastW, toastH, 8);
+    ctx.fill();
+    
+    const borderColor = editorToast.type === 'success' ? '#00ff88' : '#ff3333';
+    ctx.strokeStyle = borderColor;
+    ctx.lineWidth = 2;
+    roundRect(ctx, toastX, toastY, toastW, toastH, 8);
+    ctx.stroke();
+    
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 13px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(editorToast.text, W / 2, toastY + 32);
   }
 }
 
