@@ -600,7 +600,7 @@ function previewLevel() {
 }
 
 function exportLevel() {
-  if (!editorLevel.metadata.name || editorLevel.metadata.name === 'Untitled Level') {
+  if (!editorLevel.metadata.name || editorLevel.metadata.name.trim() === '') {
     showToast('Set a level name first! [M]', 'error');
     return;
   }
@@ -741,7 +741,7 @@ function saveMetadata() {
   editorLevel.metadata.name = metadataInputs.name.trim() || 'Untitled Level';
   editorLevel.metadata.description = metadataInputs.description.trim();
   editorLevel.metadata.difficulty = metadataInputs.difficulty;
-  editorLevel.metadata.tags = metadataInputs.tags.split(',').map(t => t.trim()).filter(t => t.length > 0);
+  editorLevel.metadata.tags = [...new Set(metadataInputs.tags.split(',').map(t => t.trim().toLowerCase()).filter(t => t.length > 0))].slice(0, 5);
   showMetadataModal = false;
   showToast('Metadata saved!', 'success');
 }

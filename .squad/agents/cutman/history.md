@@ -91,3 +91,37 @@
 - **File API**: FileReader.readAsText() async pattern with reader.onload callback
 - **Clipboard API**: Promise-based navigator.clipboard.writeText() with .then()/.catch() for feedback
 
+### Level Metadata & Tags (Issue #25)
+- **Date:** 2025-01-21
+- **Branch:** squad/25-level-metadata
+- **PR:** #32
+- **What:** Added metadata fields (name, description, difficulty, tags) for level discovery and organization
+- **Changes:**
+  - Level Info modal: Press [M] key to open metadata editor
+  - Form fields: Name (required, max 50 chars), Description (optional, max 200 chars), Difficulty selector, Tags (comma-separated)
+  - Metadata object in editorLevel: {name, description, difficulty, tags[], author, created}
+  - Default values: name='Untitled Level', difficulty='Medium', tags=[]
+  - Export validation: Level name required before export (prevents empty names)
+  - Import support: Loads metadata from JSON, falls back to defaults
+  - Tab to cycle focus, Enter to save, ESC to cancel
+  - Difficulty badges: Easy (#16c79a), Medium (#ffd700), Hard (#e94560) with color-coded buttons
+  - Tags processing: Split by comma, trim whitespace, lowercase, dedupe, max 5 tags
+  - Filename uses safe name: level name sanitized for download (safeName-timestamp.json)
+
+### Architecture Decisions - Metadata
+- **Modal State Pattern**: showMetadataModal flag + metadataInputs object mirrors showImportModal pattern
+- **Focus Management**: metadataFocusField tracks active input ('name', 'description', 'tags') for keyboard handling
+- **Input Buffer**: metadataInputs object separate from editorLevel.metadata until save (cancel-safe)
+- **Character Limits**: Client-side validation (50/200 char limits) prevents bloat, enforced on keypress
+- **Tag Normalization**: Split, trim, lowercase, dedupe with Set, slice to 5 — prevents dupes and enforces limit
+- **Export Gate**: Name validation check before export, shows error toast if empty
+- **Default Metadata**: Created timestamp + Player author on new level, preserved on import
+
+### Code Patterns - Metadata
+- **Keyboard Input Handling**: if (e.key.length === 1) captures all printable chars, Backspace handled separately
+- **Field Cycling**: Tab key with e.preventDefault() cycles through name → description → tags → name
+- **Difficulty UI**: Three-button horizontal layout, active badge highlighted with full opacity + border
+- **Word Wrap**: Manual word-wrap for description textarea (45 char width, 14px line height)
+- **Sanitization**: name.replace(/[^a-z0-9]/gi, '-').toLowerCase() creates safe filenames
+- **Focus Indicators**: Active field gets gold border (#ffd700), brighter background, cursor indication
+
