@@ -10,7 +10,10 @@ const H = 600;
 canvas.width = W;
 canvas.height = H;
 
-const STATE = { TITLE: 0, PLAY: 1, OVER: 2, DAILY: 3, EDITOR: 4, GALLERY: 5 };
+// Multiplayer server configuration
+const GAME_SERVER_URL = 'http://localhost:3000';
+
+const STATE = { TITLE: 0, PLAY: 1, OVER: 2, DAILY: 3, EDITOR: 4, GALLERY: 5, LOBBY: 6 };
 let state = STATE.TITLE;
 let score = 0;
 let highScore = parseInt(localStorage.getItem('pb_hi') || '0', 10);
@@ -147,6 +150,172 @@ function checkAchievements() {
     }
   }
   localStorage.setItem('pb_achievements', JSON.stringify(unlockedAchievements));
+}
+
+// --- Multiplayer State ---
+let multiplayerClient = null;
+let lobbyState = 'menu'; // menu, creating, joining, in-room, quick-match
+let currentRoom = null; // { code, players: [], state }
+let roomCodeInput = '';
+let playerNameInput = localStorage.getItem('pb_player_name') || '';
+let serverPing = 0;
+let lastPingTime = 0;
+let isReady = false;
+let countdownValue = 0;
+let lobbyError = null;
+
+// MultiplayerClient - Socket.io wrapper
+class MultiplayerClient {
+  constructor() {
+    this.socket = null;
+    this.connected = false;
+  }
+
+  connect() {
+    if (this.socket) return;
+    
+    // Load socket.io from CDN
+    if (typeof io === 'undefined') {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.socket.io/4.7.2/socket.io.min.js';
+      script.onload = () => this.initSocket();
+      document.head.appendChild(script);
+    } else {
+      this.initSocket();
+    }
+  }
+
+  initSocket() {
+    this.socket = io(GAME_SERVER_URL, {
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: 5
+    });
+
+    this.socket.on('connect', () => {
+      console.log('[MP] Connected to server');
+      this.connected = true;
+      lobbyError = null;
+    });
+
+    this.socket.on('disconnect', () => {
+      console.log('[MP] Disconnected from server');
+      this.connected = false;
+      lobbyError = 'Disconnected from server';
+    });
+
+    this.socket.on('connect_error', (err) => {
+      console.log('[MP] Connection error:', err.message);
+      this.connected = false;
+      lobbyError = 'Cannot connect to server';
+    });
+
+    this.socket.on('room-update', (data) => {
+      currentRoom = data;
+      isReady = data.players.find(p => p.id === this.socket.id)?.ready || false;
+    });
+
+    this.socket.on('countdown', (data) => {
+      countdownValue = data.seconds;
+      playTone(800, 0.05, 'square', 0.1);
+    });
+
+    this.socket.on('race-start', (data) => {
+      console.log('[MP] Race starting!', data);
+      countdownValue = 0;
+      // TODO: Start multiplayer race with seed
+      playTone(1200, 0.1, 'sine', 0.15);
+    });
+
+    this.socket.on('player-left', (data) => {
+      console.log('[MP] Player left:', data.playerName);
+    });
+
+    this.socket.on('matched', (data) => {
+      console.log('[MP] Matched! Room:', data.roomCode);
+      lobbyState = 'in-room';
+    });
+
+    this.socket.on('error', (data) => {
+      console.log('[MP] Error:', data.message);
+      lobbyError = data.message;
+    });
+
+    this.socket.on('pong', (data) => {
+      serverPing = Date.now() - lastPingTime;
+    });
+
+    // Start ping loop
+    setInterval(() => {
+      if (this.connected) {
+        lastPingTime = Date.now();
+        this.socket.emit('ping');
+      }
+    }, 2000);
+  }
+
+  disconnect() {
+    if (this.socket) {
+      this.socket.disconnect();
+      this.socket = null;
+      this.connected = false;
+    }
+  }
+
+  createRoom(name) {
+    if (!this.socket) return;
+    this.socket.emit('create-room', { name }, (response) => {
+      if (response.success) {
+        lobbyState = 'in-room';
+        lobbyError = null;
+      } else {
+        lobbyError = response.error;
+      }
+    });
+  }
+
+  joinRoom(code, name) {
+    if (!this.socket) return;
+    this.socket.emit('join-room', { roomCode: code, name }, (response) => {
+      if (response.success) {
+        lobbyState = 'in-room';
+        lobbyError = null;
+      } else {
+        lobbyError = response.error;
+      }
+    });
+  }
+
+  quickMatch(name) {
+    if (!this.socket) return;
+    this.socket.emit('quick-match', { name }, (response) => {
+      if (response.success) {
+        lobbyState = 'quick-match';
+        lobbyError = null;
+      } else {
+        lobbyError = response.error;
+      }
+    });
+  }
+
+  toggleReady() {
+    if (!this.socket) return;
+    this.socket.emit('ready', {}, (response) => {
+      if (!response.success) {
+        lobbyError = response.error;
+      }
+    });
+  }
+
+  leaveRoom() {
+    if (!this.socket) return;
+    this.socket.emit('leave-room', {}, (response) => {
+      lobbyState = 'menu';
+      currentRoom = null;
+      isReady = false;
+      countdownValue = 0;
+    });
+  }
 }
 
 // --- Daily Challenge ---
@@ -599,7 +768,62 @@ document.onkeydown = e => {
   if (e.key === 'd' && state === STATE.TITLE && !showAchievementOverlay) startGame(true);
   if (e.key === 'e' && state === STATE.TITLE && !showAchievementOverlay) startEditor();
   if (e.key === 'c' && state === STATE.TITLE && !showAchievementOverlay) startGallery();
+  if (e.key === 'm' && state === STATE.TITLE && !showAchievementOverlay) enterLobby();
   if ((e.key === ' ' || e.key === 'Enter') && !isPlaying()) startGame();
+  // Lobby controls
+  if (state === STATE.LOBBY) {
+    if (e.key === 'Escape') {
+      if (lobbyState === 'in-room' || lobbyState === 'quick-match') {
+        multiplayerClient.leaveRoom();
+      } else {
+        leaveLobby();
+      }
+    }
+    if (lobbyState === 'menu') {
+      if (e.key === '1') lobbyState = 'creating';
+      if (e.key === '2') lobbyState = 'joining';
+      if (e.key === '3') {
+        if (multiplayerClient && multiplayerClient.connected) {
+          multiplayerClient.quickMatch(playerNameInput || 'Player');
+        }
+      }
+    } else if (lobbyState === 'creating') {
+      if (e.key === 'Enter') {
+        if (multiplayerClient && multiplayerClient.connected) {
+          multiplayerClient.createRoom(playerNameInput || 'Player');
+        }
+      }
+      if (e.key === 'Escape') lobbyState = 'menu';
+      if (e.key === 'Backspace' && playerNameInput.length > 0) {
+        playerNameInput = playerNameInput.slice(0, -1);
+        localStorage.setItem('pb_player_name', playerNameInput);
+      } else if (e.key.length === 1 && playerNameInput.length < 20 && /[a-zA-Z0-9 ]/.test(e.key)) {
+        playerNameInput += e.key;
+        localStorage.setItem('pb_player_name', playerNameInput);
+      }
+    } else if (lobbyState === 'joining') {
+      if (e.key === 'Enter' && roomCodeInput.length === 6) {
+        if (multiplayerClient && multiplayerClient.connected) {
+          multiplayerClient.joinRoom(roomCodeInput, playerNameInput || 'Player');
+        }
+      }
+      if (e.key === 'Escape') {
+        lobbyState = 'menu';
+        roomCodeInput = '';
+      }
+      if (e.key === 'Backspace' && roomCodeInput.length > 0) {
+        roomCodeInput = roomCodeInput.slice(0, -1);
+      } else if (e.key.length === 1 && roomCodeInput.length < 6 && /[A-Z0-9]/i.test(e.key)) {
+        roomCodeInput += e.key.toUpperCase();
+      }
+    } else if (lobbyState === 'in-room') {
+      if (e.key === 'r' || e.key === 'R') {
+        if (multiplayerClient && multiplayerClient.connected) {
+          multiplayerClient.toggleReady();
+        }
+      }
+    }
+  }
   // Editor controls
   if (state === STATE.EDITOR) {
     if (showImportModal) {
@@ -1188,6 +1412,32 @@ function startGallery() {
   selectedGalleryLevel = null;
 }
 
+// --- Multiplayer Lobby Functions ---
+function enterLobby() {
+  ensureAudio();
+  state = STATE.LOBBY;
+  lobbyState = 'menu';
+  lobbyError = null;
+  
+  // Initialize multiplayer client
+  if (!multiplayerClient) {
+    multiplayerClient = new MultiplayerClient();
+  }
+  multiplayerClient.connect();
+}
+
+function leaveLobby() {
+  state = STATE.TITLE;
+  lobbyState = 'menu';
+  currentRoom = null;
+  isReady = false;
+  countdownValue = 0;
+  lobbyError = null;
+  if (multiplayerClient) {
+    multiplayerClient.disconnect();
+  }
+}
+
 function handleGalleryClick(e) {
   const rect = canvas.getBoundingClientRect();
   const x = ((e.clientX - rect.left) / rect.width) * W;
@@ -1753,6 +2003,7 @@ function draw() {
   if (state === STATE.OVER) drawGameOver();
   if (state === STATE.EDITOR) drawEditor();
   if (state === STATE.GALLERY) drawGallery();
+  if (state === STATE.LOBBY) drawLobby();
 
   // Achievement toast
   if (achievementToast && achievementToast.timer > 0) {
@@ -1850,10 +2101,238 @@ function drawTitleScreen() {
   ctx.fillStyle = '#aaa';
   ctx.fillText(todayMods.map(m => m.icon + ' ' + m.name).join(' + '), W / 2, H / 2 + 200);
   ctx.fillText('Attempts: ' + dd.attempts + '/3' + (dd.scores.length ? '  Best: ' + dd.scores[0] : ''), W / 2, H / 2 + 215);
+  // Level Editor & Gallery
+  ctx.fillStyle = '#ffd700';
+  ctx.font = 'bold 13px "Courier New", monospace';
+  ctx.fillText('[ E ] Level Editor', W / 2, H / 2 + 238);
+  ctx.fillText('[ C ] Community Gallery', W / 2, H / 2 + 253);
+  // Multiplayer
+  ctx.fillStyle = '#16c79a';
+  ctx.font = 'bold 13px "Courier New", monospace';
+  ctx.fillText('[ M ] Multiplayer', W / 2, H / 2 + 268);
   // Controls hint
   ctx.fillStyle = '#555';
   ctx.font = '10px "Courier New", monospace';
-  ctx.fillText('[A] Achievements  [M] Mute  [E] Editor  [C] Gallery', W / 2, H / 2 + 240);
+  ctx.fillText('[A] Achievements  [Shift+M] Mute', W / 2, H / 2 + 293);
+}
+
+function drawLobby() {
+  // Background
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, '#0a1128');
+  grad.addColorStop(1, '#001f3f');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
+  
+  // Title
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#16c79a';
+  ctx.font = 'bold 32px "Courier New", monospace';
+  ctx.fillText('MULTIPLAYER', W / 2, 50);
+  
+  // Connection status
+  const connected = multiplayerClient && multiplayerClient.connected;
+  ctx.font = '11px "Courier New", monospace';
+  ctx.fillStyle = connected ? '#00ff88' : '#ff3333';
+  ctx.fillText(connected ? '● Connected' : '● Connecting...', W / 2, 75);
+  
+  // Ping display
+  if (connected && serverPing > 0) {
+    ctx.fillStyle = '#aaa';
+    ctx.font = '10px "Courier New", monospace';
+    ctx.fillText(`Ping: ${serverPing}ms`, W / 2, 90);
+  }
+  
+  // Error message
+  if (lobbyError) {
+    ctx.fillStyle = 'rgba(255,50,50,0.9)';
+    roundRect(ctx, 30, 100, W - 60, 40, 6);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = '12px "Courier New", monospace';
+    ctx.fillText('⚠ ' + lobbyError, W / 2, 125);
+  }
+  
+  const startY = lobbyError ? 160 : 120;
+  
+  if (lobbyState === 'menu') {
+    // Main menu
+    ctx.fillStyle = '#fff';
+    ctx.font = '16px "Courier New", monospace';
+    ctx.fillText('Choose Mode:', W / 2, startY);
+    
+    // Buttons
+    const buttons = [
+      { key: '1', label: 'Create Room', color: '#ffd700', y: startY + 50 },
+      { key: '2', label: 'Join Room', color: '#16c79a', y: startY + 100 },
+      { key: '3', label: 'Quick Match', color: '#ff8c00', y: startY + 150 }
+    ];
+    
+    for (const btn of buttons) {
+      ctx.fillStyle = btn.color + '22';
+      roundRect(ctx, 50, btn.y - 20, W - 100, 50, 8);
+      ctx.fill();
+      ctx.strokeStyle = btn.color;
+      ctx.lineWidth = 2;
+      roundRect(ctx, 50, btn.y - 20, W - 100, 50, 8);
+      ctx.stroke();
+      
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 18px "Courier New", monospace';
+      ctx.fillText(`[${btn.key}] ${btn.label}`, W / 2, btn.y + 8);
+    }
+    
+    ctx.fillStyle = '#aaa';
+    ctx.font = '11px "Courier New", monospace';
+    ctx.fillText('[ESC] Back to Title', W / 2, H - 30);
+    
+  } else if (lobbyState === 'creating') {
+    // Create room - enter name
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 18px "Courier New", monospace';
+    ctx.fillText('CREATE PRIVATE ROOM', W / 2, startY);
+    
+    ctx.font = '13px "Courier New", monospace';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('Enter your name:', W / 2, startY + 40);
+    
+    // Name input
+    ctx.fillStyle = 'rgba(255,215,0,0.1)';
+    roundRect(ctx, 40, startY + 55, W - 80, 50, 6);
+    ctx.fill();
+    ctx.strokeStyle = '#ffd700';
+    ctx.lineWidth = 2;
+    roundRect(ctx, 40, startY + 55, W - 80, 50, 6);
+    ctx.stroke();
+    
+    ctx.fillStyle = '#fff';
+    ctx.font = '16px "Courier New", monospace';
+    const displayName = playerNameInput || 'Player';
+    ctx.fillText(displayName, W / 2, startY + 88);
+    
+    // Cursor
+    if (Math.floor(Date.now() / 500) % 2 === 0) {
+      const cursorX = W / 2 + ctx.measureText(displayName).width / 2 + 3;
+      ctx.fillStyle = '#ffd700';
+      ctx.fillRect(cursorX, startY + 73, 2, 22);
+    }
+    
+    ctx.fillStyle = '#aaa';
+    ctx.font = '11px "Courier New", monospace';
+    ctx.fillText('[Enter] Create | [ESC] Back', W / 2, startY + 140);
+    
+  } else if (lobbyState === 'joining') {
+    // Join room - enter code
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 18px "Courier New", monospace';
+    ctx.fillText('JOIN PRIVATE ROOM', W / 2, startY);
+    
+    ctx.font = '13px "Courier New", monospace';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('Enter 6-character room code:', W / 2, startY + 40);
+    
+    // Code input
+    ctx.fillStyle = 'rgba(22,199,154,0.1)';
+    roundRect(ctx, 100, startY + 55, W - 200, 60, 6);
+    ctx.fill();
+    ctx.strokeStyle = '#16c79a';
+    ctx.lineWidth = 2;
+    roundRect(ctx, 100, startY + 55, W - 200, 60, 6);
+    ctx.stroke();
+    
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 28px "Courier New", monospace';
+    ctx.letterSpacing = '8px';
+    ctx.fillText(roomCodeInput || '______', W / 2, startY + 95);
+    ctx.letterSpacing = '0px';
+    
+    ctx.fillStyle = '#aaa';
+    ctx.font = '11px "Courier New", monospace';
+    ctx.fillText('[Enter] Join | [ESC] Back', W / 2, startY + 140);
+    
+  } else if (lobbyState === 'quick-match') {
+    // Quick match - searching
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 20px "Courier New", monospace';
+    ctx.fillText('SEARCHING FOR MATCH', W / 2, startY + 50);
+    
+    // Animated dots
+    const dots = '.'.repeat((Math.floor(Date.now() / 500) % 4));
+    ctx.font = '24px "Courier New", monospace';
+    ctx.fillText(dots, W / 2, startY + 90);
+    
+    ctx.font = '13px "Courier New", monospace';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('Finding players...', W / 2, startY + 130);
+    
+    ctx.font = '11px "Courier New", monospace';
+    ctx.fillText('[ESC] Cancel', W / 2, H - 30);
+    
+  } else if (lobbyState === 'in-room' && currentRoom) {
+    // In room view
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 22px "Courier New", monospace';
+    ctx.fillText('ROOM: ' + currentRoom.code, W / 2, startY);
+    
+    ctx.font = '11px "Courier New", monospace';
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('Share this code with friends', W / 2, startY + 20);
+    
+    // Players list
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 14px "Courier New", monospace';
+    ctx.fillText('Players (' + currentRoom.players.length + '/' + currentRoom.maxPlayers + '):', 30, startY + 60);
+    
+    for (let i = 0; i < currentRoom.players.length; i++) {
+      const player = currentRoom.players[i];
+      const py = startY + 90 + i * 50;
+      
+      // Player card
+      ctx.fillStyle = player.ready ? 'rgba(0,255,136,0.15)' : 'rgba(255,255,255,0.05)';
+      roundRect(ctx, 30, py, W - 60, 40, 6);
+      ctx.fill();
+      ctx.strokeStyle = player.ready ? '#00ff88' : 'rgba(255,255,255,0.2)';
+      ctx.lineWidth = 1;
+      roundRect(ctx, 30, py, W - 60, 40, 6);
+      ctx.stroke();
+      
+      // Player name
+      ctx.fillStyle = '#fff';
+      ctx.font = '14px "Courier New", monospace';
+      ctx.fillText(player.name, 45, py + 25);
+      
+      // Ready status
+      ctx.textAlign = 'right';
+      ctx.font = 'bold 12px "Courier New", monospace';
+      ctx.fillStyle = player.ready ? '#00ff88' : '#888';
+      ctx.fillText(player.ready ? '✓ READY' : 'NOT READY', W - 45, py + 25);
+      ctx.textAlign = 'left';
+    }
+    
+    // Countdown
+    if (countdownValue > 0) {
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(10,10,30,0.9)';
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#ffd700';
+      ctx.font = 'bold 80px "Courier New", monospace';
+      ctx.fillText(countdownValue.toString(), W / 2, H / 2 + 20);
+      ctx.font = '20px "Courier New", monospace';
+      ctx.fillText('GET READY!', W / 2, H / 2 - 40);
+    } else {
+      // Controls
+      ctx.textAlign = 'center';
+      const bottomY = H - 50;
+      ctx.font = 'bold 14px "Courier New", monospace';
+      ctx.fillStyle = isReady ? '#aaa' : '#ffd700';
+      ctx.fillText('[R] ' + (isReady ? 'Not Ready' : 'Ready Up'), W / 2, bottomY);
+      
+      ctx.font = '11px "Courier New", monospace';
+      ctx.fillStyle = '#aaa';
+      ctx.fillText('[ESC] Leave Room', W / 2, bottomY + 20);
+    }
+  }
 }
 
 function drawEditor() {
