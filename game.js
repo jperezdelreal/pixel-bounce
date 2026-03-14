@@ -33,9 +33,6 @@ const GRID_SIZE = 20;
 let editorToast = null; // { text, timer, type: 'success'|'error' }
 let showImportModal = false;
 let importInput = '';
-let showValidationModal = false;
-let validationErrors = [];
-let invalidPlatforms = new Set();
 let showMetadataModal = false;
 let metadataInputs = { name: '', description: '', difficulty: 'Medium', tags: '' };
 let metadataFocusField = 'name'; // name, description, tags
@@ -718,6 +715,15 @@ function exportLevel() {
     showToast('Set a level name first! [M]', 'error');
     return;
   }
+  
+  // Validate before export
+  const validation = validateLevel(editorLevel);
+  if (!validation.valid) {
+    validationErrors = validation.errors;
+    showValidationModal = true;
+    return;
+  }
+  
   const levelData = {
     version: 1,
     platforms: editorLevel.platforms,
