@@ -162,3 +162,53 @@
 - **Dual Context**: Leaderboard accessible from post-game (with highlight) AND gallery (neutral view)
 - **Event Prevention**: return early from keydown handler when in modal to prevent bleed-through
 
+### Multiplayer Race Mode (Issue #26)
+- **Date:** 2025-01-21
+- **Branch:** squad/26-multiplayer-race
+- **PR:** #36
+- **What:** Real-time multiplayer racing with synchronized gameplay, ghost trails, and post-race rankings — the capstone feature of Phase 3
+- **Changes:**
+  - **Client-side (game.js):**
+    - Ghost trail rendering: 40% opacity balls with player colors (red, green, gold, blue)
+    - Player name labels above ghost balls
+    - Real-time scoreboard overlay (top-right): all players ranked by score
+    - 60-second race timer (top-center): countdown with red warning at ≤10s
+    - Post-race rankings screen: 1st-4th with rank colors (gold, silver, bronze, gray)
+    - Rematch button: [R] to request rematch, returns to lobby with same players
+    - Leave button: [ESC] to disconnect and return to title
+    - Client-side prediction: local ball movement with 100ms position updates to server
+    - Deterministic platform generation from shared seed (seededRandom function)
+    - Ghost position interpolation from 20Hz server updates
+  - **Server-side (server/index.js + Room.js):**
+    - Game state broadcast at 20Hz (50ms interval): broadcasts all player positions
+    - Race timer management: 60s countdown with per-second updates
+    - Player state tracking: x, y, score, alive status for each player
+    - Race end detection: timer=0 OR all players dead
+    - Rankings calculation: sorted by score descending, rank 1-4
+    - Rematch flow: resetForRematch() resets room state, new seed generated
+    - Mid-race disconnect handling: mark player as 'disconnected', continue race
+    - Race cleanup: clear intervals on race end or room deletion
+
+### Architecture Decisions - Multiplayer Race
+- **State Management**: isMultiplayerRace flag switches rendering logic (ghost trails, scoreboard, timer)
+- **Player Colors**: PLAYER_COLORS array ['#e94560', '#00ff88', '#ffd700', '#88ddff'] for visual distinction
+- **Seed-Based Generation**: genPlatformsFromSeed(seed) ensures identical platform layouts across all clients
+- **20Hz Broadcast Rate**: 50ms interval balances responsiveness with server load (vs 60Hz overkill)
+- **100ms Client Updates**: Position updates sent every 100ms (lower than 20Hz to reduce traffic)
+- **Ghost Data Structure**: otherPlayers[] with {id, name, x, y, score, alive, color} for rendering
+- **Timer Authority**: Server broadcasts timer value, clients display it (no local countdown to prevent drift)
+- **Race Lifecycle**: WAITING → STARTING (countdown) → PLAYING (race) → FINISHED (rankings) → WAITING (rematch)
+- **Post-Race Screen**: Separate modal overlay (showPostRaceScreen) instead of STATE.OVER to preserve game state
+- **Rematch Pattern**: Reset room state but keep players connected (no re-join required)
+
+### Code Patterns - Multiplayer Race
+- **Ghost Rendering**: ctx.globalAlpha = 0.4 for semi-transparency, restore to 1 after drawing
+- **Scoreboard**: Sort all players (local + others) by score, highlight local player with '►' prefix
+- **Timer Display**: Conditional color (red if ≤10s, gold otherwise) for urgency feedback
+- **Rankings Display**: for-loop with rankColors[ranking.rank - 1] for medal colors
+- **Seeded RNG**: (s * 9301 + 49297) % 233280 linear congruential generator for determinism
+- **Position Update Interval**: setInterval(() => socket.emit('player-state', ...)) independent from game loop
+- **Server Game Loop**: Room.gameStateTimer + Room.raceInterval as separate intervals for state + timer
+- **Cleanup Pattern**: clearInterval on all timers before room deletion or race end
+- **Disconnect Marking**: player.alive = false + player.name += ' (DC)' for visual feedback
+

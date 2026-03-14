@@ -224,9 +224,36 @@ io.on('connection', (socket) => {
             players: room.getPlayerList()
           });
           console.log(`[START] Race started in room ${roomCode}`);
+          startRaceGameLoop(roomCode, room);
         }
       );
     }
+  });
+
+  // Player state updates during race
+  socket.on('player-state', (data) => {
+    if (!checkRateLimit(socket.id)) return;
+
+    const roomCode = playerRooms.get(socket.id);
+    if (!roomCode) return;
+
+    const room = rooms.get(roomCode);
+    if (!room || room.state !== ROOM_STATES.PLAYING) return;
+
+    room.updatePlayerState(socket.id, data);
+  });
+
+  // Rematch request
+  socket.on('rematch', () => {
+    const roomCode = playerRooms.get(socket.id);
+    if (!roomCode) return;
+
+    const room = rooms.get(roomCode);
+    if (!room || room.state !== ROOM_STATES.FINISHED) return;
+
+    room.resetForRematch();
+    broadcastRoomUpdate(roomCode);
+    console.log(`[REMATCH] Room ${roomCode} reset for rematch`);
   });
 
   // Leave current room
@@ -248,6 +275,16 @@ io.on('connection', (socket) => {
       const room = rooms.get(roomCode);
       if (room) {
         const player = playerData.get(socket.id);
+        
+        // Mark player as disconnected in race
+        if (room.state === ROOM_STATES.PLAYING) {
+          const playerInRoom = room.players.get(socket.id);
+          if (playerInRoom) {
+            playerInRoom.alive = false;
+            playerInRoom.name += ' (DC)';
+          }
+        }
+        
         room.removePlayer(socket.id);
         
         io.to(roomCode).emit('player-left', {
@@ -256,6 +293,9 @@ io.on('connection', (socket) => {
         });
 
         if (room.isEmpty()) {
+          // Clean up race timers before deleting room
+          if (room.gameStateTimer) clearInterval(room.gameStateTimer);
+          if (room.raceInterval) clearInterval(room.raceInterval);
           rooms.delete(roomCode);
           console.log(`[REMOVE] Empty room ${roomCode} deleted`);
         } else {
@@ -347,6 +387,37 @@ function tryMatchmaking() {
   }
 
   broadcastRoomUpdate(code);
+}
+
+// Game loop for race mode
+function startRaceGameLoop(roomCode, room) {
+  // Broadcast game state at 20Hz (every 50ms)
+  room.gameStateTimer = setInterval(() => {
+    const gameState = room.getGameState();
+    io.to(roomCode).emit('game-state', gameState);
+    
+    // Check if race should end
+    if (room.checkRaceEnd()) {
+      endRace(roomCode, room);
+    }
+  }, 50);
+  
+  // Race timer countdown (every second)
+  room.raceInterval = setInterval(() => {
+    room.raceTimer--;
+    if (room.raceTimer <= 0) {
+      room.raceTimer = 0;
+    }
+  }, 1000);
+}
+
+function endRace(roomCode, room) {
+  console.log(`[END] Race ended in room ${roomCode}`);
+  
+  room.finishRace();
+  const rankings = room.getRankings();
+  
+  io.to(roomCode).emit('race-end', { rankings });
 }
 
 // Start server

@@ -90,3 +90,23 @@
 **Risk Level:** Low (localStorage well-supported, abstraction enables future swap).
 **Owner:** Proto Man
 **Next Review:** When backend integration planned (Issue #26+)
+
+---
+
+### 2025-01-27T00:00Z: Multiplayer Architecture Decision — Node.js + Socket.io
+**By:** Proto Man (Lead/Architect)
+**Tier:** T1
+**Status:** ✅ IMPLEMENTED
+**Issue:** #28 — Multiplayer Foundation
+**What:** Stack: Node.js + Socket.io + Express. Server structure: `server/package.json`, `server/index.js`, `server/Room.js`, `server/.env.example`. Features: Private rooms (6-char codes), quick match, ready system, rate limiting (20 msg/sec), disconnect handling, auto room cleanup. Client: `GAME_SERVER_URL` config, `MultiplayerClient` abstraction, new `STATE.LOBBY`, lobby UI ('M' key), ping calculation (2s roundtrip). Socket events: create-room, join-room, quick-match, ready, leave-room (client→server); room-update, countdown, race-start, player-left, matched, pong (server→client).
+**Why:** Socket.io handles complexity (WebSocket fallbacks, reconnection, room management). Minimal dependencies (socket.io + express). Easy deployment (free tier). Familiar tech (JS end-to-end). Battle-tested (industry standard). Rate limiting essential. Auto-cleanup prevents memory leaks. Ping display critical for UX.
+**Rationale:** WebSocket-only rejected (manual reconnection work). WebRTC rejected (NAT issues, signaling anyway). Supabase Realtime rejected (overkill). Colyseus/Photon rejected (too heavy).
+**Implementation:** Room state machine handles lobby flow. Rate limiting via token bucket. Confusing chars avoided in codes (0/O, 1/I/l). Room codes: 6 alphanumeric. Auto-cleanup on 5min idle.
+**Code Quality:** 350+ lines server, 150+ lines Room.js, 300+ lines client game.js. State.LOBBY added. Consistent with existing patterns.
+**Files Changed:** server/package.json, server/index.js, server/Room.js, server/.env.example, game.js.
+**Testing:** ✅ Server starts, ✅ client connects, ✅ room creation, ✅ join by code, ✅ quick match, ✅ ready system, ✅ countdown sync. Pending: production deploy, GitHub Pages test, load test.
+**Tech Debt:** None — Socket.io room system perfect fit. Separation in server/ directory keeps client clean.
+**Next Steps:** Deploy to production (Render/Fly.io), implement actual multiplayer race gameplay Phase 4. Password option, report/ban system, monitoring deferred.
+**Risk Level:** Low (Socket.io battle-tested, ~100 concurrent rooms supported).
+**Owner:** Proto Man
+**Next Review:** After production deploy and Phase 4 race gameplay start
