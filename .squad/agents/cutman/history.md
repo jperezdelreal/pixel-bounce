@@ -125,3 +125,40 @@
 - **Sanitization**: name.replace(/[^a-z0-9]/gi, '-').toLowerCase() creates safe filenames
 - **Focus Indicators**: Active field gets gold border (#ffd700), brighter background, cursor indication
 
+### Community Leaderboards (Issue #21)
+- **Date:** 2025-01-21
+- **Branch:** squad/21-community-leaderboards
+- **PR:** #34
+- **What:** Implemented per-level leaderboards with localStorage-backed ScoreAPI for community level high scores
+- **Changes:**
+  - ScoreAPI abstraction: submit(levelId, playerName, score), getTop(levelId, limit)
+  - localStorage key: 'pixelbounce_scores' with structure { levelId: [scores] }
+  - Score entry schema: { playerName, score, timestamp }
+  - Post-game name prompt modal after completing community level
+  - Name input: alphanumeric + spaces, max 20 chars, Anonymous if blank
+  - Leaderboard modal: Top 10 scores with rank, player name, score, date
+  - Current score highlighting: Gold background + border if just submitted
+  - View Leaderboard from gallery: Press [L] key to view level's top scores
+  - Gallery instructions updated: '[Enter] Play | [L] Leaderboard | [1-3] Sort | [ESC] Back'
+  - Rank colors: #1 gold, #2 silver, #3 bronze, rest gray
+  - Top 100 scores kept per level (performance limit)
+
+### Architecture Decisions - Leaderboards
+- **API Pattern Consistency**: ScoreAPI mirrors LevelAPI structure — localStorage now, REST-ready for future backend
+- **State Flow**: Game Over → Name Prompt → Submit → Show Leaderboard (with highlight) → Return to Gallery
+- **Data Structure**: Nested object { levelId: [scores] } allows efficient per-level lookups without iteration
+- **Score Persistence**: Top 100 per level prevents localStorage bloat (auto-prunes on submit)
+- **Sanitization**: playerName.trim().substring(0, 30) prevents exploits and overflow
+- **Try-Catch Safety**: All localStorage operations wrapped in try-catch (learned from gallery bugs #27)
+- **Timestamp-Based Highlighting**: currentScore + timestamp within 5sec identifies just-submitted score for highlighting
+- **Anonymous Default**: Empty string → 'Anonymous' at API level, not UI level (keeps input clean)
+
+### Code Patterns - Leaderboards
+- **Modal Stacking**: Name prompt → Leaderboard → Gallery (showNamePrompt → showLeaderboard → state change)
+- **Keyboard Input**: e.key.length === 1 + regex /[a-zA-Z0-9 ]/ allows only safe characters
+- **Score Sorting**: scores.sort((a, b) => b.score - a.score) descending, slice(0, limit) for top N
+- **Date Formatting**: toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) for compact display
+- **Conditional Rendering**: if (showLeaderboard) overlays in both drawGameOver() and drawGallery()
+- **Dual Context**: Leaderboard accessible from post-game (with highlight) AND gallery (neutral view)
+- **Event Prevention**: return early from keydown handler when in modal to prevent bleed-through
+
