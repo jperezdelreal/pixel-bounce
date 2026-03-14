@@ -319,6 +319,9 @@ let pendingRating = 0;
 let communityLevelId = null;
 let isPlayingCommunityLevel = false;
 
+// --- Social Sharing State ---
+let shareToast = null; // { text, timer }
+
 // --- Leaderboard State ---
 let showLeaderboard = false;
 let leaderboardLevelId = null;
@@ -1009,6 +1012,165 @@ const ScoreAPI = {
 // Initialize demo levels on first visit
 LevelAPI._initDemoLevels();
 
+// --- Social Sharing Functions ---
+
+function generateShareImage(score, height, stars) {
+  const offscreen = document.createElement('canvas');
+  offscreen.width = 400;
+  offscreen.height = 200;
+  const offCtx = offscreen.getContext('2d');
+  
+  // Dark background gradient
+  const bgGrad = offCtx.createLinearGradient(0, 0, 0, 200);
+  bgGrad.addColorStop(0, '#0f3460');
+  bgGrad.addColorStop(1, '#1a1a2e');
+  offCtx.fillStyle = bgGrad;
+  offCtx.fillRect(0, 0, 400, 200);
+  
+  // Title
+  offCtx.fillStyle = '#e94560';
+  offCtx.font = 'bold 32px "Courier New", monospace';
+  offCtx.textAlign = 'center';
+  offCtx.fillText('PIXEL BOUNCE', 200, 50);
+  
+  // Stats
+  offCtx.fillStyle = '#ffffff';
+  offCtx.font = 'bold 24px "Courier New", monospace';
+  offCtx.fillText('Score: ' + score, 200, 90);
+  
+  offCtx.font = '18px "Courier New", monospace';
+  offCtx.fillStyle = '#aaaaaa';
+  offCtx.fillText('Height: ' + height + 'm', 200, 120);
+  offCtx.fillText('Stars: ' + stars, 200, 145);
+  
+  // Branding
+  offCtx.fillStyle = '#ffd700';
+  offCtx.font = 'bold 14px "Courier New", monospace';
+  offCtx.fillText('pixelbounce.game', 200, 180);
+  
+  return offscreen.toDataURL('image/png');
+}
+
+async function shareScore() {
+  const dataURL = generateShareImage(score, Math.floor(ball.maxHeight), ball.stars);
+  const shareURL = window.location.href.split('?')[0];
+  const shareText = `I scored ${score} points in Pixel Bounce! Can you beat it?`;
+  
+  try {
+    // Try mobile share API first
+    if (navigator.share && navigator.canShare) {
+      // Convert data URL to blob
+      const response = await fetch(dataURL);
+      const blob = await response.blob();
+      const file = new File([blob], 'pixel-bounce-score.png', { type: 'image/png' });
+      
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          title: 'My Pixel Bounce Score',
+          text: shareText,
+          url: shareURL,
+          files: [file]
+        });
+        showShareToast('Shared successfully!');
+        return;
+      }
+    }
+    
+    // Fallback to clipboard (desktop)
+    const response = await fetch(dataURL);
+    const blob = await response.blob();
+    await navigator.clipboard.write([
+      new ClipboardItem({ 'image/png': blob })
+    ]);
+    showShareToast('Image copied to clipboard!');
+  } catch (err) {
+    // Final fallback: download image
+    console.warn('Share failed, downloading instead:', err);
+    const link = document.createElement('a');
+    link.href = dataURL;
+    link.download = `pixel-bounce-score-${score}.png`;
+    link.click();
+    showShareToast('Image downloaded!');
+  }
+}
+
+async function shareLevel() {
+  const levelJSON = JSON.stringify({
+    version: editorLevel.version || 1,
+    platforms: editorLevel.platforms,
+    stars: editorLevel.stars,
+    spawn: editorLevel.spawn,
+    metadata: metadataInputs
+  });
+  
+  const encoded = btoa(levelJSON);
+  const shareURL = window.location.href.split('?')[0] + '?level=' + encoded;
+  const shareText = `Check out my custom Pixel Bounce level: ${metadataInputs.name || 'Unnamed Level'}`;
+  
+  try {
+    // Try mobile share API first
+    if (navigator.share) {
+      await navigator.share({
+        title: 'My Pixel Bounce Level',
+        text: shareText,
+        url: shareURL
+      });
+      showShareToast('Level shared!');
+      return;
+    }
+    
+    // Fallback to clipboard (desktop)
+    await navigator.clipboard.writeText(shareURL);
+    showShareToast('Level link copied to clipboard!');
+  } catch (err) {
+    console.warn('Share failed:', err);
+    showShareToast('Failed to share level');
+  }
+}
+
+function showShareToast(text) {
+  shareToast = { text, timer: 120 }; // 2 seconds at 60fps
+}
+
+function loadSharedLevel() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const levelParam = urlParams.get('level');
+  
+  if (levelParam) {
+    try {
+      const decoded = atob(levelParam);
+      const levelData = JSON.parse(decoded);
+      
+      // Load into editor
+      editorLevel = {
+        platforms: levelData.platforms || [],
+        stars: levelData.stars || [],
+        spawn: levelData.spawn || { x: W / 2, y: H - 100 },
+        version: levelData.version || 1
+      };
+      
+      // Load metadata if available
+      if (levelData.metadata) {
+        metadataInputs = {
+          name: levelData.metadata.name || '',
+          description: levelData.metadata.description || '',
+          difficulty: levelData.metadata.difficulty || 'Medium',
+          tags: Array.isArray(levelData.metadata.tags) ? levelData.metadata.tags.join(', ') : ''
+        };
+      }
+      
+      // Start editor to show the level
+      state = STATE.EDITOR;
+      showShareToast('Shared level loaded!');
+    } catch (err) {
+      console.warn('Failed to load shared level:', err);
+    }
+  }
+}
+
+// Load shared level on page load
+loadSharedLevel();
+
 function getDailyKey() { return new Date().toISOString().slice(0, 10); }
 
 function getDailyModifiers() {
@@ -1401,6 +1563,7 @@ document.onkeydown = e => {
     if (e.key === 'm' || e.key === 'M') openMetadataModal();
     if (e.key === 'f' || e.key === 'F') handleFileImport();
     if (e.key === 'u' || e.key === 'U') uploadToGallery();
+    if (e.key === 'l' || e.key === 'L') shareLevel();
     // Tool selection with number keys
     if (e.key >= '1' && e.key <= '7') {
       const toolIdx = parseInt(e.key) - 1;
@@ -1517,6 +1680,13 @@ document.onkeydown = e => {
         showRatingModal = true;
         pendingRating = 0;
       }
+    }
+  }
+  
+  // Regular game over (not community level) - Share Score
+  if (state === STATE.OVER && !communityLevelId && !isDailyMode && !showRatingModal && !showNamePrompt) {
+    if (e.key === 's' || e.key === 'S') {
+      shareScore();
     }
   }
   
@@ -3921,7 +4091,7 @@ function drawEditor() {
   ctx.fillStyle = '#fff';
   ctx.font = '11px "Courier New", monospace';
   ctx.textAlign = 'left';
-  ctx.fillText('Click to place | [X] Export | [I] Import | [U] Upload', 10, H - 38);
+  ctx.fillText('Click to place | [X] Export | [I] Import | [U] Upload | [L] Share', 10, H - 38);
   ctx.fillText('[P] Preview | [M] Metadata | [ESC] Exit | ↑↓ Scroll', 10, H - 24);
   
   // Export/Import buttons
@@ -4166,6 +4336,23 @@ function drawGameOver() {
     }
   } else {
     ctx.fillText('Click or Tap to Restart', W / 2, H / 2 + 80);
+  }
+  
+  // Share Score button
+  if (!communityLevelId && !isDailyMode && !showRatingModal && !showNamePrompt) {
+    const shareButtonY = H / 2 + 120;
+    ctx.fillStyle = 'rgba(0,180,220,0.7)';
+    roundRect(ctx, W / 2 - 80, shareButtonY, 160, 35, 6);
+    ctx.fill();
+    ctx.strokeStyle = '#00b4dc';
+    ctx.lineWidth = 2;
+    roundRect(ctx, W / 2 - 80, shareButtonY, 160, 35, 6);
+    ctx.stroke();
+    
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 14px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('📤 Share Score [S]', W / 2, shareButtonY + 22);
   }
   
   // Rating modal
@@ -4610,6 +4797,31 @@ function drawGallery() {
     ctx.font = '12px "Courier New", monospace';
     ctx.fillStyle = '#aaa';
     ctx.fillText('[ESC or Enter] Close', W / 2, H - 30);
+  }
+  
+  // Share toast notification (global, shows on any screen)
+  if (shareToast && shareToast.timer > 0) {
+    const toastY = 20;
+    const toastW = 280;
+    const toastH = 50;
+    const toastX = (W - toastW) / 2;
+    
+    ctx.fillStyle = 'rgba(0,180,220,0.95)';
+    roundRect(ctx, toastX, toastY, toastW, toastH, 8);
+    ctx.fill();
+    
+    ctx.strokeStyle = '#00b4dc';
+    ctx.lineWidth = 2;
+    roundRect(ctx, toastX, toastY, toastW, toastH, 8);
+    ctx.stroke();
+    
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 14px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(shareToast.text, W / 2, toastY + 30);
+    
+    shareToast.timer--;
+    if (shareToast.timer <= 0) shareToast = null;
   }
 }
 
