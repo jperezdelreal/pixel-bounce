@@ -233,7 +233,7 @@ function announceToScreenReader(message) {
   }
 }
 
-const STATE = { TITLE: 0, PLAY: 1, OVER: 2, DAILY: 3, EDITOR: 4, GALLERY: 5, LOBBY: 6, PAUSED: 7, SETTINGS: 8 };
+const STATE = { TITLE: 0, PLAY: 1, OVER: 2, DAILY: 3, EDITOR: 4, GALLERY: 5, LOBBY: 6, PAUSED: 7, SETTINGS: 8, TUTORIAL: 9 };
 let state = STATE.TITLE;
 let pausedFromState = null;
 let score = 0;
@@ -295,7 +295,12 @@ let backgroundTheme = 0; // 0-3 for different themes
 let backgroundShapes = []; // Animated background elements
 
 // --- Level Editor State ---
-let editorLevel = { platforms: [], stars: [], spawn: { x: W / 2, y: H - 100 } };
+let editorLevel = { 
+  platforms: [], 
+  stars: [], 
+  spawn: { x: W / 2, y: H - 100 },
+  metadata: { name: 'Untitled Level', description: '', difficulty: 'Medium', tags: [], author: 'Player', created: new Date().toISOString() }
+};
 let editorTool = 'normal'; // normal, bouncy, breakable, portal, star, spawn, delete
 let editorHistory = []; // undo/redo stack
 let editorHistoryIndex = -1;
@@ -319,6 +324,10 @@ let pendingRating = 0;
 let communityLevelId = null;
 let isPlayingCommunityLevel = false;
 
+// --- Social Sharing State ---
+let shareImageCanvas = null;
+let shareImageCtx = null;
+
 // --- Leaderboard State ---
 let showLeaderboard = false;
 let leaderboardLevelId = null;
@@ -333,6 +342,74 @@ const defaultStats = { totalStars: 0, totalGames: 0, totalDeaths: 0, bestScore: 
 let stats = JSON.parse(localStorage.getItem('pb_stats') || JSON.stringify(defaultStats));
 let selectedSkin = parseInt(localStorage.getItem('pb_skin') || '0', 10);
 let runStars = 0;
+
+// --- Tutorial State ---
+let tutorialComplete = localStorage.getItem('pb_tutorial_complete') === 'true';
+let showTutorialOverlay = !tutorialComplete;
+let tutorialOverlayStep = 0;
+let isTutorialMode = false;
+let tutorialCheckpoints = [
+  { y: 450, hint: '⬅️ ➡️  Use arrow keys or WASD to move left and right', passed: false },
+  { y: 300, hint: '⭐  Collect stars for bonus points!', passed: false },
+  { y: 150, hint: '🟢  Green platforms bounce you higher!', passed: false },
+  { y: 0, hint: '🟠  Orange platforms break after one use!', passed: false },
+  { y: -200, hint: '🎉  Great job! You\'ve learned all the basics!', passed: false }
+];
+
+const TUTORIAL_LEVEL = {
+  platforms: [
+    // Starting platform
+    { x: 160, y: 530, w: 80, h: 10, type: 'static' },
+    // Basic movement section
+    { x: 100, y: 480, w: 60, h: 10, type: 'static' },
+    { x: 240, y: 450, w: 60, h: 10, type: 'static' },
+    // Star collection section
+    { x: 160, y: 380, w: 80, h: 10, type: 'static' },
+    { x: 80, y: 330, w: 60, h: 10, type: 'static' },
+    { x: 260, y: 300, w: 60, h: 10, type: 'static' },
+    // Bouncy platform section
+    { x: 160, y: 230, w: 80, h: 10, type: 'bouncy' },
+    { x: 160, y: 150, w: 80, h: 10, type: 'static' },
+    // Breakable platform section
+    { x: 160, y: 80, w: 80, h: 10, type: 'breakable' },
+    { x: 100, y: 0, w: 60, h: 10, type: 'static' },
+    { x: 240, y: -50, w: 60, h: 10, type: 'static' },
+    // Final platforms
+    { x: 160, y: -120, w: 80, h: 10, type: 'static' },
+    { x: 160, y: -200, w: 100, h: 10, type: 'static' }
+  ],
+  stars: [
+    { x: 200, y: 360 },
+    { x: 120, y: 310 },
+    { x: 290, y: 280 },
+    { x: 200, y: 200 },
+    { x: 200, y: 60 }
+  ],
+  spawn: { x: 200, y: 480 }
+};
+
+const TUTORIAL_OVERLAY_STEPS = [
+  {
+    title: 'Welcome to Pixel Bounce!',
+    text: 'Guide your ball upward by bouncing on platforms.\nThe higher you climb, the more points you score!',
+    icon: '🎮'
+  },
+  {
+    title: 'Movement Controls',
+    text: 'Use Arrow Keys or WASD to move left and right.\nClick or tap to start bouncing!',
+    icon: '⬅️➡️'
+  },
+  {
+    title: 'Collect Stars',
+    text: 'Grab stars for bonus points!\nDifferent colored platforms have special abilities.',
+    icon: '⭐'
+  },
+  {
+    title: 'Ready to Play?',
+    text: 'Press [T] from the title screen to try the tutorial level.\nOr jump right in and start playing!',
+    icon: '🚀'
+  }
+];
 
 const SKINS = [
   { name: 'Classic', hint: 'Default', unlock: () => true,
@@ -1063,6 +1140,231 @@ function sfxPowerUp() {
   setTimeout(() => playTone(1100, 0.12, 'square', 0.1), 140);
 }
 
+// --- Social Sharing Functions ---
+function generateShareImage() {
+  // Create offscreen canvas for share image (400x200px)
+  if (!shareImageCanvas) {
+    shareImageCanvas = document.createElement('canvas');
+    shareImageCanvas.width = 400;
+    shareImageCanvas.height = 200;
+    shareImageCtx = shareImageCanvas.getContext('2d');
+  }
+  
+  const ctx = shareImageCtx;
+  
+  // Background gradient
+  const grad = ctx.createLinearGradient(0, 0, 0, 200);
+  grad.addColorStop(0, '#0f3460');
+  grad.addColorStop(1, '#1a1a2e');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 400, 200);
+  
+  // Logo/Title
+  ctx.fillStyle = '#e94560';
+  ctx.font = 'bold 32px "Courier New", monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('PIXEL BOUNCE', 200, 50);
+  
+  // Score
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 28px "Courier New", monospace';
+  ctx.fillText('Score: ' + score, 200, 95);
+  
+  // Height
+  ctx.fillStyle = '#ffd700';
+  ctx.font = '20px "Courier New", monospace';
+  ctx.fillText('Height: ' + Math.floor(maxHeight), 200, 125);
+  
+  // Stars collected
+  const totalStars = stars.filter(s => s.collected).length;
+  ctx.fillStyle = '#ffd700';
+  ctx.font = '18px sans-serif';
+  ctx.fillText('★', 150, 155);
+  ctx.fillStyle = '#fff';
+  ctx.font = '18px "Courier New", monospace';
+  ctx.fillText(' x ' + totalStars, 170, 155);
+  
+  // Footer
+  ctx.fillStyle = '#aaa';
+  ctx.font = '12px "Courier New", monospace';
+  ctx.fillText('Play at: github.com/jperezdelreal/pixel-bounce', 200, 185);
+  
+  return shareImageCanvas;
+}
+
+async function shareScore() {
+  try {
+    const canvas = generateShareImage();
+    const dataUrl = canvas.toDataURL('image/png');
+    
+    // Check if on mobile with navigator.share support
+    if (navigator.share && navigator.canShare) {
+      // Try to share with native share sheet
+      const blob = await (await fetch(dataUrl)).blob();
+      const file = new File([blob], 'pixel-bounce-score.png', { type: 'image/png' });
+      
+      const shareData = {
+        title: 'Pixel Bounce - My Score!',
+        text: `I scored ${score} points in Pixel Bounce! Can you beat it?`,
+        files: [file]
+      };
+      
+      if (navigator.canShare(shareData)) {
+        await navigator.share(shareData);
+        showToast('Shared successfully!', 'success');
+        return;
+      }
+    }
+    
+    // Fallback: try to copy image to clipboard (desktop)
+    try {
+      const blob = await (await fetch(dataUrl)).blob();
+      await navigator.clipboard.write([
+        new ClipboardItem({ 'image/png': blob })
+      ]);
+      showToast('Image copied to clipboard!', 'success');
+    } catch (clipErr) {
+      // Final fallback: download the image
+      const link = document.createElement('a');
+      link.download = 'pixel-bounce-score.png';
+      link.href = dataUrl;
+      link.click();
+      showToast('Image downloaded!', 'success');
+    }
+  } catch (err) {
+    console.error('Share failed:', err);
+    showToast('Share failed - try again', 'error');
+  }
+}
+
+function generateLevelShareLink() {
+  try {
+    const levelData = {
+      version: 1,
+      platforms: editorLevel.platforms,
+      stars: editorLevel.stars,
+      spawn: editorLevel.spawn,
+      metadata: editorLevel.metadata
+    };
+    
+    const json = JSON.stringify(levelData);
+    const base64 = btoa(json);
+    const url = new URL(window.location.href);
+    url.searchParams.set('level', base64);
+    
+    return url.toString();
+  } catch (err) {
+    console.error('Generate link failed:', err);
+    return null;
+  }
+}
+
+async function shareLevelLink() {
+  try {
+    const link = generateLevelShareLink();
+    if (!link) {
+      showToast('Failed to generate link', 'error');
+      return;
+    }
+    
+    const levelName = editorLevel.metadata.name || 'Untitled Level';
+    
+    // Check if on mobile with navigator.share support
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Pixel Bounce - ' + levelName,
+          text: `Check out my custom level: ${levelName}`,
+          url: link
+        });
+        showToast('Shared successfully!', 'success');
+        return;
+      } catch (shareErr) {
+        // User cancelled or share failed, fall through to clipboard
+        if (shareErr.name === 'AbortError') return;
+      }
+    }
+    
+    // Fallback: copy to clipboard (desktop)
+    try {
+      await navigator.clipboard.writeText(link);
+      showToast('Link copied to clipboard!', 'success');
+    } catch (clipErr) {
+      // Final fallback: show link in alert (very rare)
+      prompt('Copy this link:', link);
+      showToast('Link ready to copy', 'success');
+    }
+  } catch (err) {
+    console.error('Share level failed:', err);
+    showToast('Share failed - try again', 'error');
+  }
+}
+
+function loadLevelFromURL() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const levelBase64 = params.get('level');
+    
+    if (!levelBase64) return;
+    
+    const json = atob(levelBase64);
+    const data = JSON.parse(json);
+    
+    // Validate level data
+    if (!data.platforms || !data.stars || !data.spawn) {
+      console.error('Invalid level data in URL');
+      return;
+    }
+    
+    // Import into editor
+    editorLevel = {
+      platforms: data.platforms.map(p => ({
+        x: p.x || 0,
+        y: p.y || 0,
+        w: p.w || 80,
+        h: p.h || 10,
+        type: p.type || 'static',
+        dir: p.dir || 1,
+        speed: p.speed || 1.5,
+        broken: false,
+        pulse: 0
+      })),
+      stars: data.stars.map(s => ({
+        x: s.x || 0,
+        y: s.y || 0,
+        r: s.r || 5,
+        pulse: 0,
+        collected: false
+      })),
+      spawn: {
+        x: data.spawn.x || W / 2,
+        y: data.spawn.y || H - 100
+      },
+      metadata: {
+        name: data.metadata?.name || 'Shared Level',
+        description: data.metadata?.description || '',
+        difficulty: data.metadata?.difficulty || 'Medium',
+        tags: data.metadata?.tags || [],
+        author: data.metadata?.author || 'Anonymous',
+        created: data.metadata?.created || Date.now()
+      }
+    };
+    
+    // Switch to editor and preview the level
+    state = STATE.EDITOR;
+    showToast('Level loaded! Press [P] to preview', 'success');
+    
+    // Clear URL parameter after loading
+    const url = new URL(window.location.href);
+    url.searchParams.delete('level');
+    window.history.replaceState({}, '', url);
+    
+  } catch (err) {
+    console.error('Failed to load level from URL:', err);
+    showToast('Invalid level link', 'error');
+  }
+}
+
 function startBGM() {
   if (!audioCtx || muted) return;
   bgmGain = audioCtx.createGain();
@@ -1112,16 +1414,24 @@ new ResizeObserver(updateCachedRect).observe(canvas);
 window.addEventListener('orientationchange', updateCachedRect);
 
 // --- Input ---
-const isPlaying = () => state === STATE.PLAY || state === STATE.DAILY;
+const isPlaying = () => state === STATE.PLAY || state === STATE.DAILY || state === STATE.TUTORIAL;
 document.onkeydown = e => {
   keys[e.key] = true;
   
   // Pause toggle during gameplay (ESC or P key)
-  if ((e.key === 'Escape' || e.key === 'p' || e.key === 'P') && isPlaying() && !isPreviewMode) {
+  if ((e.key === 'Escape' || e.key === 'p' || e.key === 'P') && isPlaying() && !isPreviewMode && !isTutorialMode) {
     e.preventDefault();
     pausedFromState = state;
     state = STATE.PAUSED;
     keys = {}; // Clear key states to prevent stale input when resuming
+    return;
+  }
+  
+  // Escape from tutorial
+  if (e.key === 'Escape' && state === STATE.TUTORIAL) {
+    e.preventDefault();
+    isTutorialMode = false;
+    state = STATE.TITLE;
     return;
   }
   
@@ -1165,16 +1475,17 @@ document.onkeydown = e => {
   
   if ((e.key === 'a') && !isPlaying()) showAchievementOverlay = !showAchievementOverlay;
   // Skin selector on title screen
-  if (state === STATE.TITLE && !showAchievementOverlay) {
+  if (state === STATE.TITLE && !showAchievementOverlay && !showTutorialOverlay) {
     if (e.key === 'ArrowLeft') { selectedSkin = (selectedSkin - 1 + SKINS.length) % SKINS.length; localStorage.setItem('pb_skin', selectedSkin); }
     if (e.key === 'ArrowRight') { selectedSkin = (selectedSkin + 1) % SKINS.length; localStorage.setItem('pb_skin', selectedSkin); }
   }
-  if (e.key === 'd' && state === STATE.TITLE && !showAchievementOverlay) startGame(true);
-  if (e.key === 'e' && state === STATE.TITLE && !showAchievementOverlay) startEditor();
-  if (e.key === 'c' && state === STATE.TITLE && !showAchievementOverlay) startGallery();
-  if (e.key === 'm' && state === STATE.TITLE && !showAchievementOverlay) enterLobby();
-  if (e.key === 's' && state === STATE.TITLE && !showAchievementOverlay) startSettings();
-  if ((e.key === ' ' || e.key === 'Enter') && !isPlaying()) startGame();
+  if (e.key === 'd' && state === STATE.TITLE && !showAchievementOverlay && !showTutorialOverlay) startGame(true);
+  if (e.key === 'e' && state === STATE.TITLE && !showAchievementOverlay && !showTutorialOverlay) startEditor();
+  if (e.key === 'c' && state === STATE.TITLE && !showAchievementOverlay && !showTutorialOverlay) startGallery();
+  if (e.key === 'm' && state === STATE.TITLE && !showAchievementOverlay && !showTutorialOverlay) enterLobby();
+  if (e.key === 's' && state === STATE.TITLE && !showAchievementOverlay && !showTutorialOverlay) startSettings();
+  if (e.key === 't' && state === STATE.TITLE && !showAchievementOverlay && !showTutorialOverlay) startTutorial();
+  if ((e.key === ' ' || e.key === 'Enter') && !isPlaying() && !showTutorialOverlay) startGame();
   // Settings controls
   if (state === STATE.SETTINGS) {
     e.preventDefault();
@@ -1334,6 +1645,12 @@ document.onkeydown = e => {
       e.preventDefault();
       exportLevel();
     }
+    if (e.key === 's' || e.key === 'S') {
+      if (!keys['Control'] && !keys['Meta']) {
+        e.preventDefault();
+        shareLevelLink();
+      }
+    }
     if (e.key === 'x' || e.key === 'X') exportLevel();
     if (e.key === 'i' || e.key === 'I') openImportModal();
     if (e.key === 'm' || e.key === 'M') openMetadataModal();
@@ -1455,6 +1772,14 @@ document.onkeydown = e => {
         showRatingModal = true;
         pendingRating = 0;
       }
+    }
+  }
+  
+  // Regular game over (not community level) - share score
+  if (state === STATE.OVER && !communityLevelId && !showRatingModal && !showNamePrompt) {
+    if (e.key === 's' || e.key === 'S') {
+      e.preventDefault();
+      shareScore();
     }
   }
   
@@ -1717,6 +2042,16 @@ function startEditor() {
   showMetadataModal = false;
   metadataInputs = { name: '', description: '', difficulty: 'Medium', tags: '' };
   metadataFocusField = 'name';
+  
+  // First visit contextual hint
+  if (!localStorage.getItem('pb_editor_visited')) {
+    editorToast = { 
+      text: '💡 Click to place platforms. [Tab] switches tools. [P] to preview!', 
+      timer: 300, 
+      type: 'success' 
+    };
+    localStorage.setItem('pb_editor_visited', 'true');
+  }
 }
 
 function handleEditorClick(e) {
@@ -2021,6 +2356,16 @@ function startGallery() {
   galleryLevels = LevelAPI.list(gallerySort);
   galleryScroll = 0;
   selectedGalleryLevel = null;
+  
+  // First visit contextual hint
+  if (!localStorage.getItem('pb_gallery_visited')) {
+    editorToast = { 
+      text: '💡 Browse community levels! Upload yours with [U]. Try levels with [ENTER].', 
+      timer: 300, 
+      type: 'success' 
+    };
+    localStorage.setItem('pb_gallery_visited', 'true');
+  }
 }
 
 // --- Multiplayer Lobby Functions ---
@@ -2035,6 +2380,18 @@ function enterLobby() {
     multiplayerClient = new MultiplayerClient();
   }
   multiplayerClient.connect();
+  
+  // First visit contextual hint
+  if (!localStorage.getItem('pb_multiplayer_visited')) {
+    setTimeout(() => {
+      editorToast = { 
+        text: '💡 Race against others! Create a private room or quick match.', 
+        timer: 300, 
+        type: 'success' 
+      };
+    }, 100);
+    localStorage.setItem('pb_multiplayer_visited', 'true');
+  }
 }
 
 function leaveLobby() {
@@ -2053,6 +2410,55 @@ function startSettings() {
   ensureAudio();
   state = STATE.SETTINGS;
   announceToScreenReader('Settings menu opened');
+}
+
+function startTutorial() {
+  ensureAudio();
+  isTutorialMode = true;
+  isPreviewMode = false;
+  isDailyMode = false;
+  isMultiplayerRace = false;
+  Object.assign(dailyMods, defaultMods);
+  
+  state = STATE.TUTORIAL;
+  score = 0;
+  cameraY = 0;
+  maxHeight = 0;
+  ball.x = TUTORIAL_LEVEL.spawn.x;
+  ball.y = TUTORIAL_LEVEL.spawn.y;
+  ball.vx = 0;
+  ball.vy = -8;
+  ball.r = 8;
+  
+  // Load tutorial level
+  platforms = TUTORIAL_LEVEL.platforms.map(p => ({
+    ...p,
+    dir: p.type === 'moving' ? 1 : 0,
+    speed: p.type === 'moving' ? 1 : 0,
+    broken: false,
+    pulse: 0
+  }));
+  
+  stars = TUTORIAL_LEVEL.stars.map(s => ({ x: s.x, y: s.y, r: 6 }));
+  
+  // Reset tutorial checkpoints
+  tutorialCheckpoints.forEach(cp => cp.passed = false);
+  
+  resetParticlePool();
+  powerups = [];
+  activePower = null;
+  runStars = 0;
+  runBounces = 0;
+  runStartTime = Date.now();
+  
+  shakeOffset = { x: 0, y: 0, decay: 0 };
+  ballTrail = [];
+  milestoneFlash = null;
+  lastMilestone = 0;
+  backgroundTheme = 0;
+  initBackgroundShapes();
+  
+  announceToScreenReader('Tutorial started. Follow the on-screen hints.');
 }
 
 function handleGalleryClick(e) {
@@ -2438,7 +2844,17 @@ function update() {
     }
     return;
   }
-  if (state !== STATE.PLAY && state !== STATE.DAILY) return;
+  if (state !== STATE.PLAY && state !== STATE.DAILY && state !== STATE.TUTORIAL) return;
+
+  // Tutorial checkpoint logic
+  if (isTutorialMode) {
+    for (const checkpoint of tutorialCheckpoints) {
+      if (!checkpoint.passed && ball.y <= checkpoint.y) {
+        checkpoint.passed = true;
+        announceToScreenReader(checkpoint.hint);
+      }
+    }
+  }
 
   // Update ball trail
   ballTrail.push({ x: ball.x, y: ball.y, life: 30 }); // 0.5s at 60fps
@@ -2645,6 +3061,15 @@ function update() {
 
   // Game over (shield intercepts once)
   if (ball.y - cameraY > H + 50) {
+    // Skip game over in tutorial mode - just respawn
+    if (isTutorialMode) {
+      ball.x = TUTORIAL_LEVEL.spawn.x;
+      ball.y = TUTORIAL_LEVEL.spawn.y;
+      ball.vx = 0;
+      ball.vy = -8;
+      cameraY = 0;
+      return;
+    }
     if (activePower && activePower.type === 'shield') {
       // Shield saves: bounce back up
       ball.vy = -12;
@@ -3118,6 +3543,85 @@ function draw() {
     ctx.globalAlpha = 1;
   }
 
+  // Tutorial hints
+  if (isTutorialMode && state === STATE.TUTORIAL) {
+    for (const checkpoint of tutorialCheckpoints) {
+      if (checkpoint.passed && checkpoint.y + cameraY > -100 && checkpoint.y + cameraY < H + 100) {
+        const screenY = checkpoint.y - cameraY;
+        ctx.fillStyle = 'rgba(26, 26, 46, 0.9)';
+        const textLines = checkpoint.hint.split('\n');
+        const lineHeight = 16;
+        const boxHeight = textLines.length * lineHeight + 20;
+        roundRect(ctx, 10, screenY - boxHeight / 2, W - 20, boxHeight, 6);
+        ctx.fill();
+        ctx.strokeStyle = '#16c79a';
+        ctx.lineWidth = 2;
+        roundRect(ctx, 10, screenY - boxHeight / 2, W - 20, boxHeight, 6);
+        ctx.stroke();
+        ctx.fillStyle = '#fff';
+        ctx.font = '13px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        textLines.forEach((line, i) => {
+          ctx.fillText(line, W / 2, screenY - boxHeight / 2 + 20 + i * lineHeight);
+        });
+      }
+    }
+    
+    // ESC to exit hint
+    ctx.fillStyle = 'rgba(26, 26, 46, 0.8)';
+    ctx.fillRect(10, 10, 120, 30);
+    ctx.fillStyle = '#aaa';
+    ctx.font = '11px "Courier New", monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('[ESC] Exit Tutorial', 15, 28);
+  }
+
+  // Tutorial overlay
+  if (showTutorialOverlay && state === STATE.TITLE) {
+    ctx.fillStyle = 'rgba(10,10,30,0.95)';
+    ctx.fillRect(0, 0, W, H);
+    
+    const step = TUTORIAL_OVERLAY_STEPS[tutorialOverlayStep];
+    
+    // Icon
+    ctx.font = '48px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(step.icon, W / 2, 150);
+    
+    // Title
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 24px "Courier New", monospace';
+    ctx.fillText(step.title, W / 2, 210);
+    
+    // Text
+    ctx.fillStyle = '#fff';
+    ctx.font = '14px "Courier New", monospace';
+    const lines = step.text.split('\n');
+    lines.forEach((line, i) => {
+      ctx.fillText(line, W / 2, 250 + i * 24);
+    });
+    
+    // Progress dots
+    const dotY = H - 120;
+    for (let i = 0; i < TUTORIAL_OVERLAY_STEPS.length; i++) {
+      const dotX = W / 2 - (TUTORIAL_OVERLAY_STEPS.length - 1) * 10 + i * 20;
+      ctx.fillStyle = i === tutorialOverlayStep ? '#ffd700' : '#555';
+      ctx.beginPath();
+      ctx.arc(dotX, dotY, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    
+    // Navigation
+    ctx.fillStyle = '#16c79a';
+    ctx.font = 'bold 15px "Courier New", monospace';
+    const buttonText = tutorialOverlayStep === TUTORIAL_OVERLAY_STEPS.length - 1 ? '[ENTER] Get Started!' : '[ENTER] Next';
+    ctx.fillText(buttonText, W / 2, H - 70);
+    
+    ctx.fillStyle = '#aaa';
+    ctx.font = '12px "Courier New", monospace';
+    ctx.fillText('[S] Skip Tutorial', W / 2, H - 40);
+  }
+
   // Achievement overlay
   if (showAchievementOverlay) {
     ctx.fillStyle = 'rgba(10,10,30,0.9)';
@@ -3259,10 +3763,14 @@ function drawTitleScreen() {
   ctx.fillStyle = '#16c79a';
   ctx.font = 'bold 13px "Courier New", monospace';
   ctx.fillText('[ M ] Multiplayer', W / 2, H / 2 + 268);
+  // Tutorial
+  ctx.fillStyle = '#88ddff';
+  ctx.font = 'bold 13px "Courier New", monospace';
+  ctx.fillText('[ T ] Tutorial', W / 2, H / 2 + 283);
   // Controls hint
   ctx.fillStyle = '#555';
   ctx.font = '10px "Courier New", monospace';
-  ctx.fillText('[A] Achievements  [Shift+M] Mute', W / 2, H / 2 + 293);
+  ctx.fillText('[A] Achievements  [Shift+M] Mute', W / 2, H / 2 + 308);
 }
 
 function drawPauseMenu() {
@@ -3692,6 +4200,17 @@ function drawEditor() {
   ctx.fillStyle = '#fff';
   ctx.fillText('File', 180, H - 24);
   
+  // Share Level button
+  ctx.fillStyle = 'rgba(22,199,154,0.7)';
+  roundRect(ctx, 220, H - 38, 70, 20, 4);
+  ctx.fill();
+  ctx.strokeStyle = '#16c79a';
+  ctx.lineWidth = 1;
+  roundRect(ctx, 220, H - 38, 70, 20, 4);
+  ctx.stroke();
+  ctx.fillStyle = '#fff';
+  ctx.fillText('[S] Share', 255, H - 24);
+  
   ctx.textAlign = 'left';
 
   // Current tool indicator
@@ -3898,6 +4417,21 @@ function drawGameOver() {
     }
   } else {
     ctx.fillText('Click or Tap to Restart', W / 2, H / 2 + 80);
+  }
+  
+  // Share Score button
+  if (!communityLevelId && !showRatingModal && !showNamePrompt) {
+    ctx.fillStyle = 'rgba(22,199,154,0.7)';
+    roundRect(ctx, W / 2 - 80, H / 2 + 100, 160, 35, 6);
+    ctx.fill();
+    ctx.strokeStyle = '#16c79a';
+    ctx.lineWidth = 2;
+    roundRect(ctx, W / 2 - 80, H / 2 + 100, 160, 35, 6);
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 14px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('[S] Share Score', W / 2, H / 2 + 123);
   }
   
   // Rating modal
@@ -4360,3 +4894,6 @@ function drawGallery() {
   draw(); 
   requestAnimationFrame(loop); 
 })();
+
+// Load level from URL if present
+loadLevelFromURL();
