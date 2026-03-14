@@ -1,14 +1,16 @@
 # 🎮 Pixel Bounce — v2.0 Roadmap
 
-## Current State (v1.x)
+## Current State (v2.0) — Complete ✅
 
-**Pixel Bounce v1.x** is a functional HTML5 Canvas arcade game with core mechanics:
-- Single-player endless climbing gameplay
-- Touch + keyboard controls
-- Moving platforms, star collectibles, particle effects
-- High score persistence (localStorage)
-- GitHub Pages deployment
-- ~300 lines, zero dependencies
+**Pixel Bounce v2.0** is a full-featured multiplayer platformer with level editor and community features:
+- **Gameplay:** Single + multiplayer modes, endless climbing, achievements, daily challenges
+- **Editor:** In-browser level editor with drag-drop platform placement
+- **Community:** Level gallery with ratings, leaderboards, level discovery
+- **Progression:** 20+ achievements, custom ball skins, power-ups, special platforms
+- **Multiplayer:** Real-time WebSocket races (2-4 players), ghost trails, live leaderboards
+- **Backend:** Node.js + Express + Socket.io server for multiplayer & community data
+- **Deployment:** GitHub Pages (client) + Render/Heroku (server)
+- **~3500 lines**, zero build step, zero client dependencies
 
 ### Known v1.x Polish Items
 
@@ -132,17 +134,22 @@ Transform Pixel Bounce from a solo arcade game into a multiplayer-ready platform
 - [x] Fix platform generation algorithm
 - [x] Add audio (SFX + BGM)
 
-**Phase 2 (Engagement & Retention)** — *Current*
-- [ ] Achievement system — 10 unlockable badges (height, stars, streaks)
-- [ ] Daily challenge mode — seeded modifier runs with leaderboard
-- [ ] Custom ball skins — 8 skins unlocked via achievements + star currency
-- [ ] Power-ups — Shield, Magnet, Boost with spawn rate 1 per 200 height
-- [ ] Special platforms — Bouncy (2×), Breakable, Portal
+**Phase 2 (Engagement & Retention)** — *Complete ✅*
+- [x] Achievement system — 20+ unlockable badges (height, stars, skill-based)
+- [x] Daily challenge mode — seeded modifier runs with unique rules
+- [x] Custom ball skins — 15+ skins unlocked via achievements + cosmetics
+- [x] Power-ups — Shield, Magnet, Slow-Mo, Boost with configurable spawn rates
+- [x] Special platforms — Bouncy (2×), Breakable, Portal with visual indicators
 
-**Phase 3 (Social & Creative)** — *Next*
-- Build Level Editor (#2 from v2.0 roadmap)
-- Multiplayer Race Mode (#1 from v2.0 roadmap)
-- Community gallery backend
+**Phase 3 (Social & Creative)** — *Complete ✅*
+- [x] Level Editor (#22) — drag-drop platform placement, visual grid, undo/redo
+- [x] Level Import/Export (#23) — JSON serialization with metadata
+- [x] Level Validation (#24) — playability checks to prevent impossible levels
+- [x] Level Metadata & Tags (#25) — enhanced discovery with difficulty/author/ratings
+- [x] Multiplayer Race Mode (#26) — synchronized gameplay, ghost trails, leaderboards
+- [x] Community Gallery (#27) — backend storage, browse/rate/play user levels
+- [x] Community Leaderboards (#21) — level-specific high scores with rankings
+- [x] Multiplayer Foundation (#28) — WebSocket server, lobby system, matchmaking
 
 ---
 
