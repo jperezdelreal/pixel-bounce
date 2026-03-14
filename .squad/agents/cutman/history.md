@@ -287,3 +287,66 @@
 - **Balance vs Clarity**: When users question intended mechanics, consider BOTH visual feedback AND numerical balance — reduced 2.5x to 1.8x AND added text feedback
 - **Deep Investigation Required**: When a "fixed" bug reappears, assume the fix addressed a symptom, not the root cause — trace ALL state flows, not just event handlers
 
+### Visual Polish Implementation (Issue #46, PR #52)
+- **Date:** 2025-03-14
+- **Branch:** squad/46-visual-polish
+- **PR:** #52
+- **What:** Comprehensive visual polish pass with animated backgrounds, screen shake, enhanced particles, platform squash/stretch, ball trails, and milestone celebrations
+- **Changes:**
+  - **4 Animated Background Themes:** Default (< 1000), Sky (1000+), Sunset (2500+), Space (5000+) with smooth gradient transitions
+  - **Background Shapes:** 15 animated shapes (circles, squares, triangles) that parallax scroll, rotate, and loop
+  - **Screen Shake System:** Intensity-based shake with decay (3px normal bounce, 6px bouncy, 8px power-up, 15px game over)
+  - **Enhanced Particle System:** 3 types (star: 5-pointed rotating, confetti: rectangles, sparkle: cross) with rotation and rotSpeed properties
+  - **Platform Squash/Stretch:** Platforms squash to 70% height on bounce, gradually recover over 10 frames with scaleY transform
+  - **Ball Trail Effect:** Stores last 10 ball positions with 30-frame lifetime (0.5s at 60fps), renders at 30% opacity
+  - **Milestone Celebrations:** Full-screen white flash + 50 confetti particles + 3-tone sound + background theme change at 1000, 2500, 5000, 10000
+  - **State Variables:** shakeOffset {x, y, decay}, ballTrail[], milestoneFlash {alpha, milestone}, backgroundTheme (0-3), backgroundShapes[]
+
+### Architecture Decisions - Visual Polish
+- **Background Theme System:** Array of 4 theme objects with gradient colors + shape colors, switched on milestone reach
+- **Screen Shake Pattern:** Single shakeOffset object with x/y, exponential decay (0.85 multiplier), thresholds at 0.1 for cleanup
+- **Particle Type Field:** Extended particle object with type, rotation, rotSpeed for varied rendering without separate arrays
+- **Platform Squash State:** Added squash property to platform objects (undefined = no squash), incremental recovery with +=0.1
+- **Ball Trail Lifetime:** Fixed 30-frame lifetime matches 0.5s at 60fps, max 10 positions prevents memory bloat
+- **Milestone Detection:** Single lastMilestone variable prevents duplicate celebrations, checks on score increase only
+- **Background Shape Pooling:** 15 pre-initialized shapes with parallax (cameraY * 0.05), wrap at screen bottom + size
+- **Performance Strategy:** All animations use incremental updates (+=), no Math.sin in update loop except platform pulse
+
+### Code Patterns - Visual Polish
+- **Theme Rendering:** themes[backgroundTheme] lookup, createLinearGradient with theme colors, shapes drawn with ctx.rotate(shape.angle)
+- **Screen Shake Application:** ctx.translate(shakeOffset.x, shakeOffset.y - cameraY) before main game rendering
+- **Particle Type Switch:** if/else chain for type='star'/'confetti'/'sparkle', each with unique draw logic (star uses 5-point loop, confetti uses fillRect)
+- **Squash Recovery:** if (p.squash < 1) { p.squash += 0.1; if (p.squash > 1) p.squash = 1; } in platform update loop
+- **Ball Trail Update:** ballTrail.push({x, y, life: 30}), decrement life, filter life > 0, cap at 10 with shift()
+- **Milestone Flash:** milestoneFlash.alpha -= 0.05 decay, render white overlay with alpha * 0.5, text at alpha > 0.5
+- **Background Shape Update:** shape.y += shape.speed, shape.angle += 0.01, wrap: if (shape.y > H + shape.size) reset
+- **Initialization Pattern:** All visual polish state reset in startGame(), startMultiplayerRace(), and previewLevel() for clean start
+
+### Key File Paths - Visual Polish
+- **game.js** (lines 35-40): Visual polish state variables (shakeOffset, ballTrail, milestoneFlash, backgroundTheme, backgroundShapes)
+- **game.js** (lines 1233-1247): Enhanced spawnParticles() with type parameter + rotation properties
+- **game.js** (lines 1249-1273): Screen shake functions (addScreenShake, updateScreenShake)
+- **game.js** (lines 1275-1310): Milestone functions (checkMilestone, triggerMilestoneCelebration)
+- **game.js** (lines 1312-1343): Background shape functions (initBackgroundShapes, updateBackgroundShapes)
+- **game.js** (lines 2095-2104): Visual polish initialization in startGame()
+- **game.js** (lines 2285-2325): Ball trail, screen shake, background shape updates in update() loop
+- **game.js** (lines 2399-2412): Platform squash effect on bounce collision
+- **game.js** (lines 2448-2455): Platform squash recovery in platform update loop
+- **game.js** (lines 2461-2467): Milestone check on score increase
+- **game.js** (lines 2586-2653): Animated background theme rendering in draw()
+- **game.js** (lines 2698-2708): Platform squash/stretch rendering with scaleY
+- **game.js** (lines 2763-2827): Enhanced particle rendering with type-specific draw logic
+- **game.js** (lines 2829-2838): Ball trail rendering with 30% opacity
+- **game.js** (lines 2970-2991): Milestone flash overlay rendering
+
+### User Preferences - Visual Polish
+- **Subtle Shake:** Screen shake intensities tuned low (3-15px) to avoid nausea while providing feedback
+- **Gradual Theme Transitions:** Background themes change instantly on milestone, but gradient colors prevent jarring transitions
+- **Performance First:** All effects use pooling, incremental updates, and filtering to maintain 60fps
+- **Particle Variety:** 3 distinct particle types provide visual interest without overwhelming the screen
+- **Non-Intrusive Trail:** Ball trail at 30% opacity + 10-position cap keeps focus on main ball
+- **Celebration Clarity:** Milestone flash at 50% alpha + 0.05 decay ensures visibility without blinding player
+- **Platform Feedback:** Squash effect subtle (70% height) but noticeable enough to confirm bounce impact
+- **Background Motion:** Parallax shapes move slower than foreground (0.05x cameraY) for depth perception
+
+
