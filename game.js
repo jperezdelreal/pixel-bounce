@@ -7,14 +7,19 @@ const ctx = canvas.getContext('2d');
 
 const W = 400;
 const H = 600;
-canvas.width = W;
-canvas.height = H;
+const dpr = window.devicePixelRatio || 1;
+canvas.width = W * dpr;
+canvas.height = H * dpr;
+canvas.style.width = W + 'px';
+canvas.style.height = H + 'px';
+ctx.scale(dpr, dpr);
 
 // Multiplayer server configuration
 const GAME_SERVER_URL = 'http://localhost:3000';
 
-const STATE = { TITLE: 0, PLAY: 1, OVER: 2, DAILY: 3, EDITOR: 4, GALLERY: 5, LOBBY: 6 };
+const STATE = { TITLE: 0, PLAY: 1, OVER: 2, DAILY: 3, EDITOR: 4, GALLERY: 5, LOBBY: 6, PAUSED: 7 };
 let state = STATE.TITLE;
+let pausedFromState = null;
 let score = 0;
 let highScore = parseInt(localStorage.getItem('pb_hi') || '0', 10);
 let stars = [];
@@ -846,7 +851,48 @@ window.addEventListener('orientationchange', updateCachedRect);
 const isPlaying = () => state === STATE.PLAY || state === STATE.DAILY;
 document.onkeydown = e => {
   keys[e.key] = true;
-  if (e.key === 'm' || e.key === 'M') toggleMute();
+  
+  // Pause toggle during gameplay (ESC or P key)
+  if ((e.key === 'Escape' || e.key === 'p' || e.key === 'P') && isPlaying() && !isPreviewMode) {
+    pausedFromState = state;
+    state = STATE.PAUSED;
+    return;
+  }
+  if (e.key === 'Escape' && state === STATE.PAUSED) {
+    state = pausedFromState;
+    pausedFromState = null;
+    return;
+  }
+  
+  // Pause menu actions
+  if (state === STATE.PAUSED) {
+    if (e.key === 'p' || e.key === 'P') {
+      // Resume
+      state = pausedFromState;
+      pausedFromState = null;
+      return;
+    }
+    if (e.key === 'm' || e.key === 'M') {
+      // Toggle mute
+      toggleMute();
+      return;
+    }
+    if (e.key === 'q' || e.key === 'Q') {
+      // Quit to title
+      state = STATE.TITLE;
+      pausedFromState = null;
+      stopBGM();
+      return;
+    }
+    return; // Prevent other key actions while paused
+  }
+  
+  // Mute toggle (Shift+M to avoid conflict with multiplayer M key)
+  if ((e.key === 'M') && e.shiftKey) {
+    toggleMute();
+    return;
+  }
+  
   if ((e.key === 'a') && !isPlaying()) showAchievementOverlay = !showAchievementOverlay;
   // Skin selector on title screen
   if (state === STATE.TITLE && !showAchievementOverlay) {
@@ -2316,6 +2362,7 @@ function draw() {
 
   if (state === STATE.TITLE) drawTitleScreen();
   if (state === STATE.OVER) drawGameOver();
+  if (state === STATE.PAUSED) drawPauseMenu();
   if (state === STATE.EDITOR) drawEditor();
   if (state === STATE.GALLERY) drawGallery();
   if (state === STATE.LOBBY) drawLobby();
@@ -2430,6 +2477,59 @@ function drawTitleScreen() {
   ctx.fillStyle = '#555';
   ctx.font = '10px "Courier New", monospace';
   ctx.fillText('[A] Achievements  [Shift+M] Mute', W / 2, H / 2 + 293);
+}
+
+function drawPauseMenu() {
+  // Draw frozen game in background
+  ctx.save();
+  ctx.translate(0, -cameraY);
+  
+  // Draw platforms
+  platforms.forEach(p => {
+    const onScreen = (p.y + p.h + cameraY > 0 && p.y + cameraY < H);
+    if (!onScreen) return;
+    drawPlatform(p);
+  });
+  
+  // Draw stars
+  stars.forEach(s => {
+    const onScreen = (s.y + 10 + cameraY > 0 && s.y - 10 + cameraY < H);
+    if (onScreen) drawStar(s.x, s.y, s.r);
+  });
+  
+  // Draw ball
+  const skin = SKINS[selectedSkin];
+  if (skin.unlock()) skin.draw(ctx, ball.x, ball.y, ball.r);
+  
+  ctx.restore();
+  
+  // Semi-transparent dark overlay
+  ctx.fillStyle = 'rgba(10, 10, 30, 0.85)';
+  ctx.fillRect(0, 0, W, H);
+  
+  // Title
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffd700';
+  ctx.font = 'bold 32px "Courier New", monospace';
+  ctx.fillText('PAUSED', W / 2, H / 2 - 60);
+  
+  // Menu options with selection highlighting
+  const options = [
+    { key: 'ESC', label: 'Resume', y: H / 2, action: 'resume' },
+    { key: 'M', label: muted ? '🔇 Sound: OFF' : '🔊 Sound: ON', y: H / 2 + 50, action: 'mute' },
+    { key: 'Q', label: 'Quit to Title', y: H / 2 + 100, action: 'quit' }
+  ];
+  
+  options.forEach(opt => {
+    ctx.font = 'bold 18px "Courier New", monospace';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(`[${opt.key}] ${opt.label}`, W / 2, opt.y);
+  });
+  
+  // Instructions
+  ctx.font = '12px "Courier New", monospace';
+  ctx.fillStyle = '#888';
+  ctx.fillText('Press ESC or P to resume', W / 2, H - 40);
 }
 
 function drawLobby() {

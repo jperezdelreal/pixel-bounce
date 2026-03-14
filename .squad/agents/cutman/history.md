@@ -212,3 +212,36 @@
 - **Cleanup Pattern**: clearInterval on all timers before room deletion or race end
 - **Disconnect Marking**: player.alive = false + player.name += ' (DC)' for visual feedback
 
+### UI Polish — Menu Text, Mute, Pause Menu (Issue #41)
+- **Date:** 2025-01-21
+- **Branch:** squad/ui-polish-menu-mute-pause
+- **PR:** #42
+- **What:** Fixed 3 critical UX bugs: blurry menu text, broken mute toggle, and missing pause menu
+- **Changes:**
+  - Canvas HiDPI rendering: devicePixelRatio scaling for crisp text on all displays
+  - Removed `image-rendering: pixelated` CSS to prevent text blocky rendering
+  - Fixed mute key conflict: Changed to Shift+M (was conflicting with Multiplayer 'M' key)
+  - Added STATE.PAUSED with pausedFromState tracking to preserve game/daily mode
+  - Pause menu overlay: Semi-transparent with frozen game background
+  - Pause controls: ESC/P to toggle, M for mute, Q to quit to title
+  - Pause menu options: Resume, Sound ON/OFF indicator, Quit to Title
+  - Prevent pause during editor preview mode (isPreviewMode check)
+
+## Learnings
+
+### Architecture Decisions - UI Polish
+- **Canvas Resolution**: Set canvas.width/height to W*dpr, H*dpr then scale context with ctx.scale(dpr, dpr) for HiDPI
+- **CSS vs Canvas Rendering**: `image-rendering: pixelated` is great for pixel art but terrible for text — removed it
+- **Mute Key Conflict**: 'M' key was used for both mute AND multiplayer menu, causing double-trigger — fixed with Shift+M
+- **Pause State Pattern**: Added STATE.PAUSED with pausedFromState variable to remember PLAY vs DAILY mode
+- **Pause Rendering**: Draw frozen game background (platforms, stars, ball) then overlay semi-transparent menu
+- **Key Event Early Return**: Pause menu keyboard handler returns early to prevent key bleed-through to game logic
+
+### Code Patterns - UI Polish
+- **DPR Scaling**: `const dpr = window.devicePixelRatio || 1; canvas.width = W * dpr; ctx.scale(dpr, dpr)`
+- **Style Dimension Sync**: Set canvas.style.width/height in px to match logical dimensions (400x600)
+- **Pause Toggle**: `if (e.key === 'Escape' && isPlaying()) { pausedFromState = state; state = STATE.PAUSED; }`
+- **State Restoration**: `if (e.key === 'Escape' && state === STATE.PAUSED) { state = pausedFromState; pausedFromState = null; }`
+- **Menu Overlay**: ctx.fillStyle = 'rgba(10, 10, 30, 0.85)' for darkened background with game still visible
+- **Modifier Key Check**: `if (e.key === 'M' && e.shiftKey)` for Shift+M combo to avoid key conflicts
+
