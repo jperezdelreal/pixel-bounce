@@ -27,6 +27,7 @@ let editorLevel = { platforms: [], stars: [], spawn: { x: W / 2, y: H - 100 } };
 let editorTool = 'normal'; // normal, bouncy, breakable, portal, star, spawn, delete
 let editorHistory = []; // undo/redo stack
 let editorHistoryIndex = -1;
+let isPreviewMode = false;
 const EDITOR_TOOLS = ['normal', 'bouncy', 'breakable', 'portal', 'star', 'spawn', 'delete'];
 const GRID_SIZE = 20;
 
@@ -303,6 +304,11 @@ document.onkeydown = e => {
       if (toolIdx < EDITOR_TOOLS.length) editorTool = EDITOR_TOOLS[toolIdx];
     }
   }
+  // Preview mode ESC returns to editor
+  if (state === STATE.PLAY && isPreviewMode && e.key === 'Escape') {
+    isPreviewMode = false;
+    state = STATE.EDITOR;
+  }
 };
 document.onkeyup = e => { keys[e.key] = false; };
 
@@ -379,6 +385,7 @@ function makePowerUp(x, y) {
 function startEditor() {
   ensureAudio();
   state = STATE.EDITOR;
+  isPreviewMode = false;
   editorLevel = { platforms: [], stars: [], spawn: { x: W / 2, y: H - 100 } };
   editorTool = 'normal';
   editorHistory = [];
@@ -445,12 +452,13 @@ function editorUndo() {
 function editorRedo() {
   if (editorHistoryIndex < editorHistory.length - 1) {
     editorHistoryIndex++;
-    editorLevel = JSON.parse(JSON.stringify(editorHistory[editorHistoryIndex + 1]));
+    editorLevel = JSON.parse(JSON.stringify(editorHistory[editorHistoryIndex]));
   }
 }
 
 function previewLevel() {
   if (editorLevel.platforms.length === 0) return; // Need at least one platform
+  isPreviewMode = true;
   state = STATE.PLAY;
   score = 0;
   cameraY = 0;
@@ -474,6 +482,7 @@ function previewLevel() {
 // --- Game Init ---
 function startGame(daily) {
   ensureAudio();
+  isPreviewMode = false;
   isDailyMode = !!daily;
   // Reset modifiers
   Object.assign(dailyMods, defaultMods);
@@ -679,6 +688,11 @@ function update() {
       activePower = null;
       playTone(700, 0.2, 'sine', 0.15);
       spawnParticles(ball.x, ball.y, '#4488ff', 20);
+    } else if (isPreviewMode) {
+      // Return to editor from preview
+      isPreviewMode = false;
+      state = STATE.EDITOR;
+      ball.r = 8; // reset radius
     } else {
       state = STATE.OVER;
       sfxGameOver();
