@@ -29,6 +29,7 @@ let powerups = [];
 let activePower = null; // { type, timer }
 let cameraY = 0;
 let maxHeight = 0;
+let feedbackText = null; // { text, x, y, color, timer }
 
 // --- Level Editor State ---
 let editorLevel = { platforms: [], stars: [], spawn: { x: W / 2, y: H - 100 } };
@@ -857,6 +858,7 @@ document.onkeydown = e => {
     e.preventDefault();
     pausedFromState = state;
     state = STATE.PAUSED;
+    keys = {}; // Clear key states to prevent stale input when resuming
     return;
   }
   
@@ -867,6 +869,8 @@ document.onkeydown = e => {
       // Resume game
       state = pausedFromState;
       pausedFromState = null;
+      keys = {}; // Clear key states when resuming
+      spawnParticles(W / 2, H / 2, '#00ff88', 20); // Visual feedback for resume
       return;
     }
     if (e.key === 'm' || e.key === 'M') {
@@ -1985,13 +1989,23 @@ function update() {
           ball.y + ball.r >= p.y && ball.y + ball.r <= p.y + p.h + ball.vy + 2) {
         const baseVy = (-10 - Math.min(score * 0.02, 4)) * dailyMods.bounceMul;
         runBounces++;
-        // Boost power-up: amplify next bounce
-        const boostMul = (activePower && activePower.type === 'boost') ? 2.5 : 1;
-        if (boostMul > 1) activePower = null;
+        // Boost power-up: amplify next bounce (reduced from 2.5x to 1.8x for better balance)
+        const boostMul = (activePower && activePower.type === 'boost') ? 1.8 : 1;
+        if (boostMul > 1) {
+          activePower = null;
+          // Visual feedback for boost activation
+          spawnParticles(ball.x, p.y, '#ff4444', 15);
+          feedbackText = { text: 'BOOST!', x: ball.x, y: p.y, color: '#ff4444', timer: 40 };
+        }
         if (p.type === 'bouncy') {
           ball.vy = baseVy * 2 * boostMul;
           sfxBouncy();
-          spawnParticles(ball.x, p.y, '#00ff88', 8);
+          spawnParticles(ball.x, p.y, '#00ff88', boostMul > 1 ? 20 : 8); // More particles if boosted
+          // Extra visual feedback for bouncy platforms
+          if (boostMul === 1) {
+            // Non-boosted bouncy: show "2X BOUNCE!" text
+            feedbackText = { text: '2X BOUNCE!', x: ball.x, y: p.y, color: '#00ff88', timer: 40 };
+          }
         } else if (p.type === 'breakable') {
           ball.vy = baseVy * boostMul;
           p.broken = true;
@@ -2102,6 +2116,13 @@ function update() {
     const p = particles[i];
     p.x += p.vx; p.y += p.vy; p.life--;
     if (p.life <= 0) particles.splice(i, 1);
+  }
+
+  // Update feedback text timer
+  if (feedbackText && feedbackText.timer > 0) {
+    feedbackText.timer--;
+    feedbackText.y -= 0.5; // Float upward
+    if (feedbackText.timer <= 0) feedbackText = null;
   }
 
   // Game over (shield intercepts once)
@@ -2258,6 +2279,20 @@ function draw() {
     ctx.fill();
   }
   ctx.globalAlpha = 1;
+
+  // Feedback text (BOOST!, 2X BOUNCE!, etc.)
+  if (feedbackText) {
+    const alpha = Math.min(feedbackText.timer / 20, 1);
+    ctx.globalAlpha = alpha;
+    ctx.font = 'bold 16px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = feedbackText.color;
+    ctx.shadowColor = feedbackText.color;
+    ctx.shadowBlur = 10;
+    ctx.fillText(feedbackText.text, feedbackText.x, feedbackText.y);
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+  }
 
   // Ball — render with selected skin
   const skinIdx = SKINS[selectedSkin].unlock() ? selectedSkin : 0;
