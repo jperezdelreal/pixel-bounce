@@ -1197,7 +1197,7 @@ function saveDailyScore(s) {
 }
 
 const ball = { x: W / 2, y: H / 2, vx: 0, vy: 0, r: 8 };
-const keys = {};
+let keys = {};
 let touchX = null;
 let touchZones = []; // { x, y, alpha, timer }
 let showTouchZones = true; // Show on first touch, fade after 2s
@@ -3335,77 +3335,7 @@ function draw() {
     if (p.broken) continue;
     // Culling check
     if (p.y + p.h < cullTop || p.y > cullBottom) continue;
-    
-    let c1, c2;
-    switch (p.type) {
-      case 'bouncy':
-        if (!accessibility.reducedMotion) p.pulse += 0.06;
-        c1 = getColor('platformBouncy'); c2 = getColor('platformBouncyDark');
-        break;
-      case 'breakable':
-        c1 = getColor('platformBreakable'); c2 = getColor('platformBreakableDark');
-        break;
-      case 'portal':
-        if (!accessibility.reducedMotion) p.pulse += 0.08;
-        c1 = getColor('platformPortal'); c2 = getColor('platformPortalDark');
-        break;
-      case 'moving':
-        c1 = getColor('platformMoving'); c2 = getColor('platformMovingDark');
-        break;
-      default:
-        c1 = getColor('platformStatic'); c2 = getColor('platformStaticDark');
-    }
-    const pg = ctx.createLinearGradient(p.x, p.y, p.x, p.y + p.h);
-    pg.addColorStop(0, c1); pg.addColorStop(1, c2);
-    ctx.fillStyle = pg;
-    // Bouncy platforms pulse in size
-    const scaleW = p.type === 'bouncy' ? 1 + Math.sin(p.pulse) * 0.05 : 1;
-    const drawX = p.x - (p.w * scaleW - p.w) / 2;
-    
-    // Platform squash/stretch effect
-    const scaleY = p.squash !== undefined ? p.squash : 1;
-    const drawH = p.h * scaleY;
-    const drawY = p.y + (p.h - drawH); // Keep bottom aligned
-    
-    roundRect(ctx, drawX, drawY, p.w * scaleW, drawH, 3);
-    ctx.fill();
-    // Bouncy spring indicator
-    if (p.type === 'bouncy') {
-      ctx.strokeStyle = getColor('spring');
-      ctx.lineWidth = 2;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      const springY = p.y + 3;
-      const springSteps = 5;
-      const stepW = p.w / springSteps;
-      let direction = 1;
-      for (let i = 0; i <= springSteps; i++) {
-        const x = p.x + i * stepW;
-        const offsetY = direction * 3;
-        ctx.lineTo(x, springY + offsetY);
-        direction *= -1;
-      }
-      ctx.stroke();
-    }
-    // Breakable crack lines
-    if (p.type === 'breakable') {
-      ctx.strokeStyle = getColor('crack');
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(p.x + p.w * 0.3, p.y);
-      ctx.lineTo(p.x + p.w * 0.5, p.y + p.h);
-      ctx.moveTo(p.x + p.w * 0.7, p.y);
-      ctx.lineTo(p.x + p.w * 0.55, p.y + p.h);
-      ctx.stroke();
-    }
-    // Portal shimmer
-    if (p.type === 'portal') {
-      ctx.globalAlpha = 0.3 + Math.sin(p.pulse) * 0.2;
-      ctx.fillStyle = getColor('portalShimmer');
-      roundRect(ctx, p.x, p.y, p.w, p.h, 3);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-    }
+    drawPlatform(p);
   }
 
   // Stars - with expanded culling
@@ -3905,6 +3835,72 @@ function drawTitleScreen() {
     ctx.fillStyle = getColor('accent');
     ctx.font = '11px "Courier New", monospace';
     ctx.fillText('[ESC] or any key to dismiss', W / 2, hintHeight - 12);
+  }
+}
+
+function drawPlatform(p) {
+  let c1, c2;
+  switch (p.type) {
+    case 'bouncy':
+      if (!accessibility.reducedMotion) p.pulse += 0.06;
+      c1 = getColor('platformBouncy'); c2 = getColor('platformBouncyDark');
+      break;
+    case 'breakable':
+      c1 = getColor('platformBreakable'); c2 = getColor('platformBreakableDark');
+      break;
+    case 'portal':
+      if (!accessibility.reducedMotion) p.pulse += 0.08;
+      c1 = getColor('platformPortal'); c2 = getColor('platformPortalDark');
+      break;
+    case 'moving':
+      c1 = getColor('platformMoving'); c2 = getColor('platformMovingDark');
+      break;
+    default:
+      c1 = getColor('platformStatic'); c2 = getColor('platformStaticDark');
+  }
+  const pg = ctx.createLinearGradient(p.x, p.y, p.x, p.y + p.h);
+  pg.addColorStop(0, c1); pg.addColorStop(1, c2);
+  ctx.fillStyle = pg;
+  const scaleW = p.type === 'bouncy' ? 1 + Math.sin(p.pulse) * 0.05 : 1;
+  const drawX = p.x - (p.w * scaleW - p.w) / 2;
+  const scaleY = p.squash !== undefined ? p.squash : 1;
+  const drawH = p.h * scaleY;
+  const drawY = p.y + (p.h - drawH);
+  roundRect(ctx, drawX, drawY, p.w * scaleW, drawH, 3);
+  ctx.fill();
+  if (p.type === 'bouncy') {
+    ctx.strokeStyle = getColor('spring');
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    const springY = p.y + 3;
+    const springSteps = 5;
+    const stepW = p.w / springSteps;
+    let direction = 1;
+    for (let i = 0; i <= springSteps; i++) {
+      const x = p.x + i * stepW;
+      const offsetY = direction * 3;
+      ctx.lineTo(x, springY + offsetY);
+      direction *= -1;
+    }
+    ctx.stroke();
+  }
+  if (p.type === 'breakable') {
+    ctx.strokeStyle = getColor('crack');
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(p.x + p.w * 0.3, p.y);
+    ctx.lineTo(p.x + p.w * 0.5, p.y + p.h);
+    ctx.moveTo(p.x + p.w * 0.7, p.y);
+    ctx.lineTo(p.x + p.w * 0.55, p.y + p.h);
+    ctx.stroke();
+  }
+  if (p.type === 'portal') {
+    ctx.globalAlpha = 0.3 + Math.sin(p.pulse) * 0.2;
+    ctx.fillStyle = getColor('portalShimmer');
+    roundRect(ctx, p.x, p.y, p.w, p.h, 3);
+    ctx.fill();
+    ctx.globalAlpha = 1;
   }
 }
 
