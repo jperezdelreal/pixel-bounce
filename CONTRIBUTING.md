@@ -518,6 +518,20 @@ pixel-bounce/
 
 ## Testing During Development
 
+### Playwright E2E Tests
+
+Run the automated test suite:
+
+```bash
+cd playwright
+npm install          # First time only
+npm test             # Run all tests
+npm run test:smoke   # Smoke tests only
+npm run test:gameplay # Gameplay tests only
+```
+
+**Test suites:** Smoke (game loads), Gameplay (core mechanics), Menu Navigation (state transitions), Stress (20-round endurance).
+
 ### Manual Testing Checklist
 
 - [ ] **Gameplay:** Ball bounces, platforms generate, score increases

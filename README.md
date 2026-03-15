@@ -79,7 +79,8 @@
 - **Deployment:** Render (free tier) or Heroku
 
 ### Tech Stats
-- **~3500 lines** of game logic, editor, multiplayer, UI
+- **~3500 lines** game.js + **~500 lines** server + Playwright E2E tests
+- **19 Playwright tests** across 4 suites (smoke, gameplay, menu, stress)
 - **Zero build step** — plain HTML/JS/CSS
 - **Zero client dependencies** — pure Canvas API
 - **Instant load** — single page app
@@ -138,6 +139,10 @@ pixel-bounce/
 ├── server/             # WebSocket multiplayer server
 │   ├── index.js        # Express + Socket.io server
 │   └── package.json
+├── playwright/         # E2E gameplay testing (Playwright)
+│   ├── tests/          # Smoke, gameplay, menu, stress tests
+│   ├── lib/            # GameRunner harness
+│   └── scripts/        # Auto-issue creation from failures
 ├── README.md           # This file
 ├── roadmap.md          # v2.0 feature roadmap & phases
 ├── DEPLOYMENT.md       # Deployment guide
@@ -164,6 +169,40 @@ See [**CONTRIBUTING.md**](./CONTRIBUTING.md) for detailed architecture guide.
 
 ---
 
+## 🧪 Testing
+
+Pixel Bounce uses Playwright for E2E gameplay testing. Tests run in real Chromium, simulate player input, and validate visual state.
+
+### Run Tests
+
+```bash
+cd playwright
+npm install          # First time only (installs Playwright + Chromium)
+npm test             # Run all tests
+npm run test:smoke   # Smoke tests only
+npm run test:gameplay # Gameplay tests only
+```
+
+### Test Suites
+
+| Suite | Tests | What it validates |
+|-------|-------|-------------------|
+| `smoke.spec.ts` | 5 | Game loads, canvas renders, no JS errors |
+| `gameplay.spec.ts` | 7 | Start game, move player, score updates, no crashes |
+| `menu-navigation.spec.ts` | 6 | Title→Play→GameOver→Restart flow |
+| `stress-20-rounds.spec.ts` | 1 | 20 consecutive play sessions, no degradation |
+
+### Auto-Issue Creation
+
+```bash
+npx playwright test --reporter=json > test-results.json
+node scripts/create-issues-from-failures.js
+```
+
+Creates GitHub issues automatically for any test failures with screenshots attached.
+
+---
+
 ## 🚁 Phase 3 (v2.0) — Complete ✅
 
 All features shipped:
@@ -175,6 +214,8 @@ All features shipped:
 - ✅ Multiplayer Lobby & Matchmaking
 - ✅ Community Leaderboards
 - ✅ WebSocket Server
+- ✅ Playwright E2E Testing (19 tests, desktop + mobile)
+- ✅ Bug Fixes (drawPlatform, const reassignment)
 
 See [**roadmap.md**](./roadmap.md) for detailed feature breakdown.
 
