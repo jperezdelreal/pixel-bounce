@@ -6,6 +6,26 @@
 - **Repo:** pixel-bounce
 - **Owner:** jperezdelreal (Syntax Sorcery / First Frame Studios)
 
+## Core Context
+**Phase 3 Status:** 100% COMPLETE + Final polish in progress. All 8 roadmap issues merged. Documentation issue (#39) complete. Current focus: Issue #58 (contextual hints — Editor/Gallery/Multiplayer first-visit tooltips). Routed to Cut Man, ~50 lines, 1-2 hour effort.
+
+**Project Completion Status:** Issue #58 is a completion BLOCKER (missing scope from original issue #50 onboarding requirements). Decision: #58 must merge before declaring Phase 3 complete. Not new scope — it's tail-end gap from PR #57 review (merged 9/12 acceptance criteria). Quality bar: 100% scope delivery.
+
+**Key Architecture Decisions:**
+- Backend: Client-side localStorage first (LevelAPI abstraction, ~600 lines game.js community gallery, 5 demo levels), deferred REST swap to Phase 4
+- Multiplayer: Node.js + Socket.io + Express, room-based lobbies, 20Hz broadcast, seeded platform RNG, production-ready
+- Editor: Vanilla grid-based system (20px snapping), state separation (STATE.EDITOR=4), non-destructive preview, undo/redo
+- State Machine: 7 states (TITLE→PLAY→OVER→DAILY→EDITOR→GALLERY→LOBBY)
+
+**Project Metrics:**
+- v1.0: ~300 lines
+- v2.0 (Phase 3): 3466 lines game.js + 500 lines server code
+- Features: 16 total (across 3 phases), zero regressions, production-ready
+
+**Next Review:** After #58 merges → declare Phase 3 complete.
+
+**Detailed Session Log** (2025-07-18 onward):
+
 ## Session Log
 
 ### Squad Initialization
