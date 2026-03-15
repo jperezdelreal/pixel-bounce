@@ -443,3 +443,11 @@
 - PR #57 (Onboarding) already included contextual hints — Issue #58 was about UPDATING them, not implementing from scratch
 - The difference between "feature missing" and "feature doesn't match spec" — this was the latter
 - Contextual hints follow same pattern as tutorial overlay but with simpler rendering (no multi-step navigation)
+
+### Bug Fixes — Playwright Testing (Issue #62)
+- **Date:** 2026-03-15
+- **Branch:** squad/62-playwright-testing
+- **What:** Fixed 2 runtime bugs found by Playwright testing
+- **Bug 1 — drawPlatform undefined:** `drawPauseMenu()` called `drawPlatform(p)` but no such function existed. Extracted platform drawing code (~60 lines) from main `draw()` loop into a reusable `drawPlatform(p)` function. Both `draw()` and `drawPauseMenu()` now call it — DRYer code (-4 net lines).
+- **Bug 2 — const reassignment:** `keys` was declared `const` (line 1200) but reassigned to `{}` on pause/resume (lines 1324, 1335). Changed to `let`. This caused "Assignment to constant variable" crash whenever player paused the game.
+- **Lesson:** Pause-related code paths are under-tested because they require specific game state. Playwright can catch these runtime errors that manual testing misses.

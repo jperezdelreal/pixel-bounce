@@ -129,3 +129,43 @@
 
 **Owner:** Proto Man
 **Status:** Project Complete — Natural Endpoint Reached
+
+---
+
+### 2026-03-15T10:15Z: Extract drawPlatform() as Reusable Function
+**By:** Cut Man (Game Developer)
+**Tier:** T2
+**Status:** ✅ IMPLEMENTED
+**What:** Extracted platform rendering code into standalone `drawPlatform(p)` function, reused by main `draw()` loop and `drawPauseMenu()`. Replaces ~70 lines of inline code with single function call.
+**Why:** Pause menu was calling undefined `drawPlatform()` (runtime crash). Extracting function eliminates duplication and ensures visual consistency for future platform rendering changes.
+**Impact:** Fixes #62 (Playwright test failures). Net -4 lines of code.
+**Branch:** squad/62-playwright-testing
+
+---
+
+### 2026-03-15T10:20Z: Playwright Test Framework Setup & Results
+**By:** Guts Man (Tester / QA)
+**Tier:** T2
+**Status:** ✅ COMPLETED
+**What:** Implemented Playwright test framework with 19 tests across desktop (400×600) and mobile (375×667, isMobile, hasTouch) viewports. Framework covers menu navigation, gameplay, pause/resume, mobile controls, level editor, community gallery, multiplayer lobby.
+**Results:** 38 tests total (19 × 2 viewports). 34 ✅ pass, 2 ⏭️ skip, 2 ❌ fail (known bugs already fixed by Cut Man on this branch).
+**Findings:**
+  - No new bugs found beyond 2 known JS errors (const reassignment, missing drawPlatform) — already fixed
+  - Mobile-specific: Canvas renders correctly at 400×600, slight horizontal scroll on 375px viewport but gameplay unaffected
+  - Touch interactions work correctly
+  - Test framework successfully catches real bugs
+**Recommendations:**
+  1. Merge Cut Man's fixes — last failing test will pass once deployed
+  2. Add mobile-chromium project permanently to playwright.config.ts for CI/CD
+  3. Add touch-specific control tests when on-screen buttons implemented
+**Branch:** squad/62-playwright-testing
+
+---
+
+### 2026-03-15T10:25Z: Playwright Pause Key Binding
+**By:** Guts Man (Tester / QA)
+**Tier:** T2
+**Status:** PROPOSED
+**What:** Playwright tests use `p` key (not `Escape`) for pause assertions. Escape navigates back to TITLE state in some modes, breaking test expectations for pause/resume flows.
+**Rationale:** Observed during test development — Escape produces state-dependent behavior, while `p` produces deterministic pause toggle that tests can reliably assert.
+**Impact:** Affects test files menu-navigation.spec.ts, potentially gameplay.spec.ts. Requires test updates if game's pause key changes.
