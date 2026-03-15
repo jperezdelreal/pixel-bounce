@@ -362,12 +362,12 @@ let editorVisited = localStorage.getItem('pb_editor_visited') === '1';
 let galleryVisited = localStorage.getItem('pb_gallery_visited') === '1';
 let multiplayerVisited = localStorage.getItem('pb_multiplayer_visited') === '1';
 let contextualHint = null; // { text, icon, timer }
-const HINT_DURATION = 240; // 4 seconds at 60fps
+const HINT_DURATION = 600; // 10 seconds at 60fps
 
 const CONTEXTUAL_HINTS = {
-  editor: { icon: '🎨', text: 'Welcome to the Editor! Click to place platforms.\nUse toolbar keys to switch tools. Press P to preview your level.' },
-  gallery: { icon: '🏠', text: 'Welcome to the Community Gallery! Browse levels, click to play.\nRate levels after completing them.' },
-  multiplayer: { icon: '🎮', text: 'Welcome to Multiplayer! Create a room or join with a code.\nAll players must ready up to start.' }
+  editor: { icon: '🎨', text: 'Click to place platforms. [1][2][3] switches platform types.\n[Space] to test level. [ESC] to exit.' },
+  gallery: { icon: '🏠', text: 'Browse community-created levels. [Enter] to play a level.\nArrow keys to navigate. [ESC] to return.' },
+  multiplayer: { icon: '🎮', text: 'Create or join race rooms. Compete for fastest climb.\n[ESC] to return to title.' }
 };
 
 const SKINS = [
@@ -3902,9 +3902,9 @@ function drawTitleScreen() {
       ctx.fillText(lines[i], W / 2, 55 + i * 18);
     }
     
-    ctx.fillStyle = '#aaa';
+    ctx.fillStyle = getColor('accent');
     ctx.font = '11px "Courier New", monospace';
-    ctx.fillText('Press any key or click to dismiss', W / 2, hintHeight - 12);
+    ctx.fillText('[ESC] or any key to dismiss', W / 2, hintHeight - 12);
   }
 }
 

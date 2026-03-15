@@ -6,6 +6,17 @@
 - **Repo:** pixel-bounce
 - **Owner:** jperezdelreal (Syntax Sorcery / First Frame Studios)
 
+## Core Context
+**Phase 3 Status:** 100% COMPLETE. All 8 roadmap issues (Level Editor, Import/Export, Validation, Metadata, Community Gallery, Leaderboards, Multiplayer Foundation, Multiplayer Race Mode) merged to main.
+
+**Current Assignment:** Issue #58 (Add contextual hints for first-time feature visits — Editor/Gallery/Multiplayer). ~50 lines, localStorage flags, reuses tutorial overlay pattern from PR #57. Scope: first-visit tooltips showing keyboard shortcuts. Status: IN PROGRESS (assigned 2026-03-15).
+
+**Key Achievement:** Implemented all Phase 3 gameplay features — editor (grid-snapping, undo/redo, preview), UGC system (import/export, metadata), leaderboards, visual polish (backgrounds, particles, screen shake), sound feedback, onboarding (tutorial overlay v2). Game.js grew from ~800 lines (Phase 1) to 3466 lines (Phase 3 complete).
+
+**Next Review:** After #58 implementation completes and validation passes.
+
+**Detailed Session Log** (2025-07-18 onward):
+
 ## Session Log
 
 ### Squad Initialization
@@ -350,3 +361,62 @@
 - **Background Motion:** Parallax shapes move slower than foreground (0.05x cameraY) for depth perception
 
 
+
+---
+
+## Learnings — Issue #58: Contextual Hints Update (2026-03-XX)
+
+### Task Context
+- **Issue:** #58 — Update contextual hints for Editor/Gallery/Multiplayer with clearer, more concise instructions
+- **Origin:** Follow-up to PR #57 (Onboarding & Tutorial) — 3/12 acceptance criteria found missing
+- **Branch:** squad/58-contextual-hints
+- **PR:** #61
+
+### What Was Already There
+- Contextual hints system was ALREADY implemented in PR #57 (commit a5b4ebd)
+- Infrastructure complete: localStorage flags, hint state management, overlay rendering, dismiss handlers
+- Original hints were functional but didn't match exact requirements from Issue #58
+
+### Changes Made
+1. **Hint Content** — Updated all three hints to match exact requirements:
+   - Editor: Clarified [1][2][3] platform types, [Space] test, [ESC] exit
+   - Gallery: Specified [Enter] to play, Arrow keys navigate, [ESC] return
+   - Multiplayer: Emphasized race competition, [ESC] return
+2. **Duration** — Extended from 4s (240 frames) to 10s (600 frames) for better readability
+3. **Dismiss Text** — Updated to '[ESC] or any key to dismiss' with getColor('accent') for visibility
+
+### Architecture Patterns Observed
+- **Hint Lifecycle:** Check localStorage → Show hint on first visit → Set flag → Auto-dismiss after timer OR any key/click
+- **Overlay Pattern:** Semi-transparent dark overlay (rgba(10,10,30,0.92)) + centered text matches tutorial overlay style
+- **Dismissal:** Two handlers (keydown line 1367-1369, click line 1745-1747) ensure any interaction dismisses hint
+- **Timer Update:** Contextual hint timer decremented in main update() loop (line 2960-2963)
+- **Rendering:** Contextual hint overlay drawn in drawTitle() after all other UI (line 3889-3908)
+
+### Key File Paths
+- **game.js** (lines 360-371): Contextual hints state + CONTEXTUAL_HINTS config object
+- **game.js** (lines 1367-1369): Keydown dismiss handler for contextual hints
+- **game.js** (lines 1745-1747): Click dismiss handler for contextual hints
+- **game.js** (lines 2049-2053): startEditor() first-visit check + hint trigger
+- **game.js** (lines 2476-2480): startGallery() first-visit check + hint trigger
+- **game.js** (lines 2497-2501): enterLobby() first-visit check + hint trigger
+- **game.js** (lines 2960-2963): update() timer decrement + auto-dismiss
+- **game.js** (lines 3889-3908): drawTitle() contextual hint overlay rendering
+
+### User Preferences
+- **10-Second Duration:** Longer than tutorial steps (which users navigate manually) to account for reading time without interaction
+- **Concise Copy:** All hints under 50 words, focus on key controls rather than welcome messages
+- **Green Accent Color:** Dismiss text uses getColor('accent') (#16c79a) for consistency with other UI elements
+- **ESC Emphasis:** Explicit [ESC] mention in dismiss text signals escape key as primary dismissal method
+
+### Testing Notes
+- All three localStorage flags work correctly (pb_editor_visited, pb_gallery_visited, pb_multiplayer_visited)
+- Hints trigger exactly once per feature per browser/device (localStorage persists)
+- Auto-dismiss works (10s = 600 frames at 60fps)
+- Manual dismiss works (any key OR click anywhere)
+- Visual style matches tutorial overlay (same overlay color, same font, same layout pattern)
+
+### Lessons Learned
+- Always check main branch for existing implementation before starting new work
+- PR #57 (Onboarding) already included contextual hints — Issue #58 was about UPDATING them, not implementing from scratch
+- The difference between "feature missing" and "feature doesn't match spec" — this was the latter
+- Contextual hints follow same pattern as tutorial overlay but with simpler rendering (no multi-step navigation)

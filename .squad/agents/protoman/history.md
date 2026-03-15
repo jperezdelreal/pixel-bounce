@@ -6,6 +6,26 @@
 - **Repo:** pixel-bounce
 - **Owner:** jperezdelreal (Syntax Sorcery / First Frame Studios)
 
+## Core Context
+**Phase 3 Status:** 100% COMPLETE + Final polish in progress. All 8 roadmap issues merged. Documentation issue (#39) complete. Current focus: Issue #58 (contextual hints — Editor/Gallery/Multiplayer first-visit tooltips). Routed to Cut Man, ~50 lines, 1-2 hour effort.
+
+**Project Completion Status:** Issue #58 is a completion BLOCKER (missing scope from original issue #50 onboarding requirements). Decision: #58 must merge before declaring Phase 3 complete. Not new scope — it's tail-end gap from PR #57 review (merged 9/12 acceptance criteria). Quality bar: 100% scope delivery.
+
+**Key Architecture Decisions:**
+- Backend: Client-side localStorage first (LevelAPI abstraction, ~600 lines game.js community gallery, 5 demo levels), deferred REST swap to Phase 4
+- Multiplayer: Node.js + Socket.io + Express, room-based lobbies, 20Hz broadcast, seeded platform RNG, production-ready
+- Editor: Vanilla grid-based system (20px snapping), state separation (STATE.EDITOR=4), non-destructive preview, undo/redo
+- State Machine: 7 states (TITLE→PLAY→OVER→DAILY→EDITOR→GALLERY→LOBBY)
+
+**Project Metrics:**
+- v1.0: ~300 lines
+- v2.0 (Phase 3): 3466 lines game.js + 500 lines server code
+- Features: 16 total (across 3 phases), zero regressions, production-ready
+
+**Next Review:** After #58 merges → declare Phase 3 complete.
+
+**Detailed Session Log** (2025-07-18 onward):
+
 ## Session Log
 
 ### Squad Initialization
@@ -432,4 +452,80 @@ Possible directions: Testing infrastructure, backend migration (localStorage →
 **Status:** Sprint Planning complete, executing #39  
 
 **Next Review:** After #39 merges → Project completion declaration
+
+---
+
+### Issue #58 Triage — Post-PR #57 Gap Discovery (2026-03-14)
+
+**Context:** Ralph (Work Monitor) activated by jperezdelreal to "poner orden" (put things in order). Issue #58 discovered as the ONLY open issue on the board after all Phase 3 work merged.
+
+**Issue Summary:**
+- **#58:** Add contextual hints for first-time feature visits (Editor/Gallery/Multiplayer)
+- **Origin:** Gap from PR #57 review — onboarding v2 merged but missing 3 of 12 acceptance criteria from issue #50
+- **Current Labels:** Only `enhancement` (no squad routing labels)
+- **Issue Body Assignment:** Says "@Guts Man" but Guts Man is QA, not implementation
+- **Scope:** ~50 lines in game.js, first-visit tooltips using localStorage flags
+
+**Architectural Assessment:**
+
+**1. Assignment Decision: Cut Man (NOT Guts Man)**
+- **Rationale:** This is game dev scope (UI polish, state management), not QA validation
+- Guts Man validates work, doesn't implement UI features — assignment was a routing error
+- Cut Man implemented PR #57 (onboarding v2) including tutorial overlay pattern
+- These contextual hints reuse the same overlay pattern he created
+- Cut Man understands state machine (STATE.EDITOR, STATE.GALLERY, STATE.LOBBY)
+
+**2. Project Completion Status: #58 is a Blocker**
+- **Sprint Planning Decision (2026-01-27)** said: "After Issue #39 merges → declare Project Complete"
+- Issue #39 IS closed/merged (Documentation Polish)
+- BUT: Issue #58 didn't exist when that decision was made
+- #58 discovered 2 months later during PR #57 review (2026-03-14)
+
+**Critical Question: Does #58 block completion declaration?**
+
+**My Assessment: YES — Merge #58 before declaring completion.**
+
+**Reasoning:**
+1. **Quality Standards:** Issue #58 is not "new scope" — it's missing scope from original issue #50 requirements. PR #57 met 9/12 acceptance criteria. The 3 missing criteria (contextual hints) are documented requirements, not nice-to-haves. Declaring completion with 75% of acceptance criteria met violates our quality bar.
+
+2. **User Experience Gap:** First-time users entering Editor/Gallery/Multiplayer will have zero context about controls. Without hints: Editor users won't know [1][2][3] switches platform types, Gallery users won't know how to navigate, Multiplayer users won't understand lobby flow. This is a usability blocker, not polish.
+
+3. **Architectural Integrity:** Issue #50's scope explicitly included "contextual hints for advanced features." PR #57 merged without them due to oversight, not intentional descope. Closing with known missing requirements sets bad precedent.
+
+4. **Low Risk, High Value:** ~50 lines, 1-2 hours for Cut Man, near-zero risk (reuses existing pattern), high value (completes onboarding experience).
+
+**Sprint Planning Decision Interpretation:**
+The decision intent was "after documentation is done," not "ignore any gaps found after #39." Issue #58 is a tail-end discovery from issue #50, not a Phase 4 feature.
+
+**Revised Completion Criteria:**
+- ✅ Issue #39 (Docs) merged
+- 🔄 Issue #58 (Contextual Hints) merged ← NEW BLOCKER
+- → Then declare Phase 3 complete
+
+**Actions Taken:**
+1. **Triage Document Created:** `.squad/decisions/inbox/protoman-triage-58.md`
+2. **Routing Decision:** Assign to Cut Man with `squad:cutman` label (not Guts Man)
+3. **Project Status:** Phase 3 completion ON HOLD until #58 merges
+4. **Ralph Monitoring:** Keep board active until #58 resolved
+
+**Technical Notes:**
+- Branch strategy: NEW branch (PR #57 already merged to main)
+- Testing: Guts Man validates after Cut Man implements
+- Merge target: `main` (standard flow)
+- Effort estimate: 1-2 hours implementation
+
+**Key Files:**
+- Implementation: `game.js` (~50 lines: flags, checks, render functions)
+- Pattern reuse: Tutorial overlay from PR #57
+
+**User Preferences Respected:**
+- Quality over speed: Don't ship 75% features ✅
+- Trust Proto Man for architecture/planning decisions ✅
+- Incremental shipping: Fix gaps before declaring done ✅
+
+**Conclusion:**
+Issue #58 is a **completion blocker**, not a Phase 4 item. Declaring completion now would mean shipping with known gaps. That's not how this team operates. Route to Cut Man, implement, validate, THEN declare Phase 3 complete with integrity intact.
+
+**Status:** Routed to Cut Man. Awaiting implementation.  
+**Next Review:** After #58 merges → Final completion declaration
 
