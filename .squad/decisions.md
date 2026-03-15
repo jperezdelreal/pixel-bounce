@@ -48,21 +48,7 @@
 
 ---
 
-> **Note:** Entries from 2025-01 and 2025-07 have been archived to `.squad/decisions-archive.md` to reduce active file size (2026-03-15T00:51Z).
-
-### 2026-01-27T00:00Z: Sprint Planning Decision — Post-Phase 3
-**By:** Proto Man (Lead & Architect)
-**Tier:** T1
-**Status:** ✅ ACTIVE (REVISED 2026-03-14)
-**What:** Phase 3 roadmap is **100% complete**. All 8 issues from the Phase 3 plan have been merged to main (Level Editor, Import/Export, Validation, Metadata, Community Gallery, Leaderboards, Multiplayer Foundation, Multiplayer Race Mode). Project growth: v1.0 (~300 lines) → v2.0 (3466 lines game.js + 500 lines server code). Documentation is outdated; Issue #39 (Documentation Polish) created for README/roadmap/deployment updates before declaring project complete. Testing issues (#37, #38) created ad-hoc, not part of roadmap scope — deferred to Phase 4 if project resumes.
-**Why:** Phase 3 is the **natural endpoint** for feature development. The roadmap's vision (multiplayer, level editor, community features) has been fully realized. "Open Questions" in roadmap.md are product/business decisions (monetization, hosting cost, mobile app), not engineering tasks. Documentation is the final work before completion declaration.
-**Rationale:** Testing is valuable but not part of Phase 3 scope; deferred as maintenance work. Advanced editor features (search, auth, moderation, replay, tournaments, mobile editor) are Phase 4+ items. Project is feature-complete per roadmap; forcing Phase 4 would be scope creep.
-**Implementation:** After Issue #39 merges → declare Project Complete (mark Phase 3 done in roadmap.md, close remaining "Define next roadmap" issues as WONTFIX, final commit "🏁 Phase 3 Complete — Pixel Bounce v2.0 Delivered").
-**Revision (2026-03-14):** Issue #58 discovered during PR #57 review — it's missing scope from original onboarding requirement (#50). PR #57 met 9/12 acceptance criteria; #58 adds the 3 missing contextual hints (first-visit tooltips for Editor/Gallery/Multiplayer). This is a **completion blocker**, not Phase 4 scope. #58 must merge before declaring completion. Revised criteria: ✅ #39 merged, 🔄 #58 merged → declare Phase 3 complete.
-**Owner:** Proto Man
-**Next Review:** After Issue #58 merges → Final project completion declaration
-
----
+> **Note:** Entries from 2025-01, 2025-07, and pre-2026-03-01 have been archived to `.squad/decisions-archive.md` to reduce active file size (2026-03-15T10:30Z).
 
 ### 2026-03-14T14:30Z: Issue #58 Routing & Completion Assessment
 **By:** Proto Man (Lead & Architect)
