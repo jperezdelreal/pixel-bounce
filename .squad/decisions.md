@@ -67,12 +67,35 @@
 ### 2026-03-14T14:30Z: Issue #58 Routing & Completion Assessment
 **By:** Proto Man (Lead & Architect)
 **Tier:** T1
-**Status:** ✅ ACTIVE
+**Status:** ✅ COMPLETED (merged PR #61 2026-03-15T00:57Z)
 **What:** Issue #58 (Add contextual hints for first-time feature visits) routed to **Cut Man**, not Guts Man. Scope: ~50 lines in game.js, add first-visit tooltips for [E]ditor, [C]ommunity Gallery, [M]ultiplayer using localStorage flags. Visual pattern matches existing tutorial overlay from PR #57.
 **Why (Assignment):** This is gameplay UX polish, not QA validation. Cut Man owns game.js UI patterns and state management. He implemented PR #57 (onboarding v2) including the tutorial overlay that these hints will reuse. Guts Man is QA/Tester; he validates, doesn't implement UI features. Original issue assignment to "@Guts Man" was a routing error.
 **Why (Completion Blocker):** Issue #58 is not "new scope" — it's **missing scope** from original onboarding requirement (issue #50). PR #57 met 9/12 acceptance criteria. Declaring completion with 75% of acceptance criteria met violates project quality bar. User experience gap without contextual hints: Editor users won't know platform-type switches ([1][2][3]), test controls ([Space]), exit ([ESC]); Gallery users won't know navigation; Multiplayer users won't understand lobby flow. This is a **usability blocker**, not polish.
 **Assessment:** Low-risk (effort ~1-2 hours, reuses existing overlay pattern), high-value (completes onboarding experience). Cost/benefit heavily favors shipping #58 before declaring completion.
-**Action:** Route to Cut Man with `squad:cutman` label. After #58 merges, validate completion and declare Phase 3 complete with integrity intact.
+**Action:** Routed to Cut Man with `squad:cutman` label. Implementation completed — PR #61 approved and merged (squash) by Proto Man on 2026-03-15T00:57Z.
 **Owner:** Proto Man
-**Status:** Routed to Cut Man. Awaiting implementation.
-**Next Review:** After #58 merges → Final completion declaration
+**Status:** ✅ IMPLEMENTED
+**Completion:** PR #61 merged. Issue #58 closed. Phase 3 completion unblocked.
+
+---
+
+### 2026-03-15T00:55Z: Contextual Hints Content & Duration Update (Issue #58, PR #61)
+**By:** Cut Man (Game Developer)
+**Tier:** T2 (Implementation detail)
+**Status:** ✅ COMPLETED (merged 2026-03-15T00:57Z)
+**Issue:** #58 — Update contextual hints for Editor/Gallery/Multiplayer  
+**PR:** #61 (squash-merged)
+
+**Changes:**
+- **Editor hint:** "Click to place platforms. [1][2][3] switches platform types. [Space] to test level. [ESC] to exit."
+- **Gallery hint:** "Browse community-created levels. [Enter] to play a level. Arrow keys to navigate. [ESC] to return."
+- **Multiplayer hint:** "Create or join race rooms. Compete for fastest climb. [ESC] to return to title."
+- **Duration:** 240 frames (4s) → 600 frames (10s) for adequate reading time
+- **Dismiss text:** "[ESC] or any key to dismiss" with accent color emphasis
+
+**Why:** PR #57 review found hints matched spec but needed refinement per Issue #50 acceptance criteria. Original hints were welcoming; updated hints are action-oriented and instructional (<50 words each). Extended duration (10s → 4s) solves readability on first visit.
+
+**Context:** Infrastructure (localStorage flags, dismiss handlers, visual style) already working from PR #57. This update refined content and UX tuning.
+
+**Owner:** Cut Man
+**Status:** ✅ DELIVERED — Board clear, Phase 3 unblocked
