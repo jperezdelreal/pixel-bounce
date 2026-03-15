@@ -185,3 +185,117 @@ Changes required before merge. Issues #1-2 are critical blockers. Issue #3 shoul
 - State machine verification (Room lifecycle)
 - Edge case testing (disconnects, full rooms, invalid codes)
 - Acceptance criteria validation (14 points checked)
+
+### Issue #62 — Playwright Gameplay Testing Framework
+- **Date:** 2026-03-15
+- **Branch:** squad/62-playwright-testing
+- **Status:** Committed, ready for PR
+
+**Implementation:**
+Set up Playwright gameplay testing infrastructure from the Syntax Sorcery template, customized for Pixel Bounce.
+
+**Test Suites (19 tests total):**
+1. **Smoke Tests (6):** Page load, canvas presence, 400×600 dimensions, visual content, screenshot capture, animation loop
+2. **Gameplay Tests (7):** Title→Play transition, ArrowLeft/Right input, A/D alternate controls, visual state changes, score region updates, crash resistance, pixel readability
+3. **Menu Navigation (6):** Title screen render, title→play transition, pause ('p' key), game over detection, restart flow, console error check
+
+**Infrastructure:**
+- `GameRunner` harness: browser launch, screenshot capture, pixel comparison, input simulation, visual content detection
+- `create-issues-from-failures.js`: Auto-creates GitHub issues from test failures with screenshots
+- `playwright.config.ts`: 400×600 viewport, sequential execution, JSON reporter for CI/CD
+
+**Test Results (against production):**
+- **17 passed**, 1 skipped (static title screen animation), 1 failed (caught real bugs)
+- The failed test (`no console errors during menu navigation`) correctly detected 2 game bugs:
+  - `"Assignment to constant variable"` — JS error during gameplay
+  - `"drawPlatform is not defined"` — Missing function reference
+- These are real bugs in game.js, not test issues — validates the framework works
+
+**Customizations from Template:**
+- Viewport: 800×600 → 400×600 (Pixel Bounce canvas)
+- Start game: click center (200, 300) not (400, 300)
+- Controls: ArrowLeft/Right + A/D (not generic ArrowUp/Down/Space)
+- Pause: 'p' key (not Escape — Escape returns to title)
+- Game over: wait ~10s for player to fall
+- Canvas-only HUD: pixel comparison instead of DOM queries
+- GAME_URL default: `https://jperezdelreal.github.io/pixel-bounce/`
+
+**Key Decision:**
+Used 'p' for pause instead of Escape in tests, because Escape in Pixel Bounce navigates back to title screen in some modes, which would break the pause test flow.
+
+### Live Site Playwright Run — Desktop + Mobile Viewports
+- **Date:** 2025-07-18
+- **Branch:** squad/62-playwright-testing
+- **Target:** https://jperezdelreal.github.io/pixel-bounce/ (production)
+- **Status:** Completed — 2 known bugs confirmed, no new bugs found
+
+**Desktop (400×600 viewport — gameplay-chromium project):**
+
+| Suite | Test | Result |
+|-------|------|--------|
+| Smoke | game page loads without errors | ✅ Pass |
+| Smoke | canvas element is present | ✅ Pass |
+| Smoke | canvas has correct dimensions (400×600) | ✅ Pass |
+| Smoke | canvas renders visual content (not blank) | ✅ Pass |
+| Smoke | screenshot can be captured | ✅ Pass |
+| Smoke | animation loop is running (frames differ) | ⏭️ Skipped (static title screen) |
+| Gameplay | game transitions from title to gameplay on click | ✅ Pass |
+| Gameplay | player responds to left/right input | ✅ Pass |
+| Gameplay | player responds to A/D alternate controls | ✅ Pass |
+| Gameplay | game state changes are reflected visually | ✅ Pass |
+| Gameplay | score region updates during gameplay | ✅ Pass |
+| Gameplay | game does not crash after extended play | ✅ Pass |
+| Gameplay | canvas pixel data is readable during gameplay | ✅ Pass |
+| Menu Nav | title screen renders correctly | ✅ Pass |
+| Menu Nav | title screen → gameplay transition | ✅ Pass |
+| Menu Nav | pause menu can be opened during gameplay | ✅ Pass |
+| Menu Nav | game over screen appears after losing | ✅ Pass |
+| Menu Nav | game over → restart transition works | ✅ Pass |
+| Menu Nav | no console errors during menu navigation | ❌ FAIL |
+
+Desktop totals: **17 passed, 1 skipped, 1 failed** (known bugs)
+
+**Mobile (375×667 viewport — mobile-chromium project, isMobile + hasTouch):**
+
+| Suite | Test | Result |
+|-------|------|--------|
+| Smoke | game page loads without errors | ✅ Pass |
+| Smoke | canvas element is present | ✅ Pass |
+| Smoke | canvas has correct dimensions (400×600) | ✅ Pass |
+| Smoke | canvas renders visual content (not blank) | ✅ Pass |
+| Smoke | screenshot can be captured | ✅ Pass |
+| Smoke | animation loop is running (frames differ) | ⏭️ Skipped (static title screen) |
+| Gameplay | game transitions from title to gameplay on click | ✅ Pass |
+| Gameplay | player responds to left/right input | ✅ Pass |
+| Gameplay | player responds to A/D alternate controls | ✅ Pass |
+| Gameplay | game state changes are reflected visually | ✅ Pass |
+| Gameplay | score region updates during gameplay | ✅ Pass |
+| Gameplay | game does not crash after extended play | ✅ Pass |
+| Gameplay | canvas pixel data is readable during gameplay | ✅ Pass |
+| Menu Nav | title screen renders correctly | ✅ Pass |
+| Menu Nav | title screen → gameplay transition | ✅ Pass |
+| Menu Nav | pause menu can be opened during gameplay | ✅ Pass |
+| Menu Nav | game over screen appears after losing | ✅ Pass |
+| Menu Nav | game over → restart transition works | ✅ Pass |
+| Menu Nav | no console errors during menu navigation | ❌ FAIL |
+
+Mobile totals: **17 passed, 1 skipped, 1 failed** (same known bugs)
+
+**Failed Test Details (both viewports):**
+- Test: `no console errors during menu navigation`
+- Errors caught: `["Assignment to constant variable.", "drawPlatform is not defined"]`
+- These are the 2 known bugs already fixed by Cut Man on this branch but not yet deployed to production
+- Confirms the test framework correctly catches real JS errors
+
+**Key Findings:**
+1. **No new bugs discovered** — all failures trace to the 2 known issues
+2. **Mobile viewport works identically to desktop** — canvas fixed at 400×600 regardless of viewport, no responsive layout issues
+3. **Touch/click handling works** — `isMobile: true` + `hasTouch: true` did not break any interactions
+4. **Canvas dimensions pass on mobile** — the 400×600 canvas renders correctly even in 375×667 mobile viewport (canvas overflows slightly, but CSS computed dimensions still report 400×600)
+5. **All gameplay mechanics functional** — input, scoring, pause, game over, restart all work on both viewports
+6. **Animation loop skip is consistent** — title screen is static on both viewports (expected behavior)
+
+**Recommendation:**
+- Merge Cut Man's fixes and redeploy — the `no console errors` test will pass once `drawPlatform` and const bugs are fixed on production
+- Consider adding a mobile-chromium project permanently to playwright.config.ts for CI/CD
+- No touch-specific control tests exist yet — future work could test on-screen touch buttons if/when added
